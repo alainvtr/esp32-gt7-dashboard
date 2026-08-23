@@ -1315,13 +1315,14 @@ public:
 
 	void drawTouchCalibrationHint(bool confirm)
 	{
-		const uint16_t color = confirm
-			? tft.color565(210, 82, 126)
+		const uint16_t textColor = confirm
+			? tft.color565(218, 111, 148)
 			: tft.color565(105, 105, 105);
+
 		tft.fillRect(62, 4, 196, 29, TFT_BLACK);
 		tft.setTextDatum(MC_DATUM);
-		tft.setTextColor(color, TFT_BLACK);
-		tft.drawString(confirm ? "TAP AGAIN TO OPEN" : "TOUCH SETUP",
+		tft.setTextColor(textColor, TFT_BLACK);
+		tft.drawString(confirm ? "TOUCH AGAIN" : "TOUCH SETUP",
 			X_CENTER, 18, 1);
 	}
 
