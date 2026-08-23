@@ -277,6 +277,24 @@ private:
 	uint16_t touchX, touchY; // definisce i due interi per gestione touchscreen
 	int numButtons = 6;		 // Variabile per il numero di pulsanti
 
+	// A lightweight correction applied after the panel driver's own touch
+	// mapping. Persisting only four rotations keeps recovery deterministic.
+	enum class TouchRotation : uint8_t
+	{
+		Deg0 = 0,
+		Deg90 = 1,
+		Deg180 = 2,
+		Deg270 = 3,
+	};
+	TouchRotation touchRotation = TouchRotation::Deg0;
+	TouchRotation pendingTouchRotation = TouchRotation::Deg0;
+	bool touchCalibrationVerified = false;
+	bool touchCalibrationEntryArmed = false;
+	bool touchCalibrationAwaitingSecondTap = false;
+	unsigned long touchCalibrationFirstTapTime = 0;
+	uint16_t originalTouchX = 0;
+	uint16_t originalTouchY = 0;
+
 	static constexpr uint8_t FADE_STEP = 5;
 	static constexpr uint8_t FADE_DELAY_MS = 4;
 	static constexpr unsigned long SCREEN_SLEEP_TIMEOUT = 5UL * 60UL * 1000UL;
@@ -311,9 +329,11 @@ private:
 		ThemeSelection,
 		DeviceSettings,
 		WifiResetConfirmation,
+		TouchCalibration,
 	};
 
 	static constexpr unsigned long SETTINGS_TIMEOUT_MS = 15000UL;
+	static constexpr unsigned long TOUCH_CALIBRATION_DOUBLE_TAP_MS = 3000UL;
 	SettingsScreen settingsScreen = SettingsScreen::Closed;
 	unsigned long settingsLastInteractionTime = 0;
 	int settingsPressedButton = -1;
@@ -345,6 +365,76 @@ private:
 		for (size_t i = 0; i < DASHBOARD_THEME_COUNT; ++i)
 			if (DASHBOARD_THEMES[i].id == theme) return i;
 		return 0;
+	}
+
+	static void applyTouchRotation(
+		uint16_t sourceX,
+		uint16_t sourceY,
+		TouchRotation rotation,
+		uint16_t &resultX,
+		uint16_t &resultY)
+	{
+		const uint32_t x = constrain(sourceX, 0, SCREEN_WIDTH - 1);
+		const uint32_t y = constrain(sourceY, 0, SCREEN_HEIGHT - 1);
+		switch (rotation)
+		{
+		case TouchRotation::Deg90:
+			resultX = static_cast<uint16_t>(
+				(y * (SCREEN_WIDTH - 1) + (SCREEN_HEIGHT - 1) / 2) /
+				(SCREEN_HEIGHT - 1));
+			resultY = static_cast<uint16_t>(
+				(((SCREEN_WIDTH - 1) - x) * (SCREEN_HEIGHT - 1) +
+					(SCREEN_WIDTH - 1) / 2) /
+				(SCREEN_WIDTH - 1));
+			break;
+		case TouchRotation::Deg180:
+			resultX = SCREEN_WIDTH - 1 - x;
+			resultY = SCREEN_HEIGHT - 1 - y;
+			break;
+		case TouchRotation::Deg270:
+			resultX = static_cast<uint16_t>(
+				(((SCREEN_HEIGHT - 1) - y) * (SCREEN_WIDTH - 1) +
+					(SCREEN_HEIGHT - 1) / 2) /
+				(SCREEN_HEIGHT - 1));
+			resultY = static_cast<uint16_t>(
+				(x * (SCREEN_HEIGHT - 1) + (SCREEN_WIDTH - 1) / 2) /
+				(SCREEN_WIDTH - 1));
+			break;
+		case TouchRotation::Deg0:
+		default:
+			resultX = static_cast<uint16_t>(x);
+			resultY = static_cast<uint16_t>(y);
+			break;
+		}
+	}
+
+	int calibrationRotationForTouch(uint16_t rawX, uint16_t rawY) const
+	{
+		constexpr int targetX = SCREEN_WIDTH / 2;
+		constexpr int targetY = 18;
+		constexpr int hitHalfWidth = 82;
+		constexpr int hitHeight = 38;
+		int closestRotation = -1;
+		uint32_t closestDistance = UINT32_MAX;
+		for (uint8_t value = 0; value < 4; ++value)
+		{
+			uint16_t candidateX = 0;
+			uint16_t candidateY = 0;
+			applyTouchRotation(rawX, rawY,
+				static_cast<TouchRotation>(value), candidateX, candidateY);
+			if (abs(static_cast<int>(candidateX) - targetX) > hitHalfWidth ||
+				candidateY > hitHeight)
+				continue;
+			const int dx = static_cast<int>(candidateX) - targetX;
+			const int dy = static_cast<int>(candidateY) - targetY;
+			const uint32_t distance = dx * dx + dy * dy;
+			if (distance < closestDistance)
+			{
+				closestDistance = distance;
+				closestRotation = value;
+			}
+		}
+		return closestRotation;
 	}
 
 	void prepareThemePreviewData()
@@ -434,9 +524,15 @@ private:
 				"brightness", DEFAULT_BRIGHTNESS_PERCENT);
 			userBrightnessPercent =
 				storedBrightness >= MIN_BRIGHTNESS_PERCENT && storedBrightness <= 100
-				? storedBrightness
-				: DEFAULT_BRIGHTNESS_PERCENT;
+					? storedBrightness
+					: DEFAULT_BRIGHTNESS_PERCENT;
+			const uint8_t storedTouchRotation = dashboardPreferences.getUChar(
+				"touchRot", static_cast<uint8_t>(TouchRotation::Deg0));
+			touchRotation = storedTouchRotation <= static_cast<uint8_t>(TouchRotation::Deg270)
+				? static_cast<TouchRotation>(storedTouchRotation)
+				: TouchRotation::Deg0;
 		}
+		pendingTouchRotation = touchRotation;
 
 		activeDashboardTheme = isValidDashboardTheme(storedTheme)
 			? static_cast<DashboardTheme>(storedTheme)
@@ -1046,6 +1142,14 @@ public:
 			fadeScreenOff();
 		}
 
+		// Touch calibration is an idle-only recovery aid. Live telemetry always
+		// wins immediately, discarding any unconfirmed candidate so this screen
+		// can never hold the dashboard or its runtime services open.
+		if (settingsScreen == SettingsScreen::TouchCalibration && previousGameRunning)
+		{
+			closeSettings();
+		}
+
 		// Keep reading touch while asleep so a tap can wake the display and a
 		// long press can open Settings.
 		readTouch();
@@ -1209,6 +1313,18 @@ public:
 		prevData[cacheKey] = liveState;
 	}
 
+	void drawTouchCalibrationHint(bool confirm)
+	{
+		const uint16_t color = confirm
+			? tft.color565(210, 82, 126)
+			: tft.color565(105, 105, 105);
+		tft.fillRect(62, 4, 196, 29, TFT_BLACK);
+		tft.setTextDatum(MC_DATUM);
+		tft.setTextColor(color, TFT_BLACK);
+		tft.drawString(confirm ? "TAP AGAIN TO OPEN" : "TOUCH SETUP",
+			X_CENTER, 18, 1);
+	}
+
 	void drawConnectingScreenBase()
 	{
 		tft.fillScreen(TFT_BLACK);
@@ -1226,6 +1342,10 @@ public:
 		tft.setTextColor(
 			tft.color565(120, 120, 120),
 			TFT_BLACK);
+
+		// The asymmetric top-centre label lets a mismatched touch rotation be
+		// inferred after two matching intentional taps while telemetry is idle.
+		drawTouchCalibrationHint(false);
 
 		tft.drawCentreString(
 			"Waiting for Telemetry",
@@ -1562,6 +1682,33 @@ public:
 			drawThemeSelectorOverlay();
 	}
 
+	void drawTouchCalibrationScreen(int pressedButton = -1)
+	{
+		tft.fillScreen(TFT_BLACK);
+		tft.setTextPadding(0);
+		tft.setTextDatum(MC_DATUM);
+		tft.setTextColor(TFT_WHITE, TFT_BLACK);
+		tft.drawString("TOUCH SETUP", X_CENTER, 27, 4);
+
+		tft.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+		tft.drawString(
+			touchCalibrationVerified ? "Touch verified" : "Tap the target to verify",
+			X_CENTER, 59, 2);
+
+		const uint16_t targetColor = touchCalibrationVerified
+			? tft.color565(88, 190, 130)
+			: tft.color565(210, 82, 126);
+		tft.drawCircle(252, 104, 15, targetColor);
+		tft.drawCircle(252, 104, 7, targetColor);
+		tft.drawFastHLine(232, 104, 41, targetColor);
+		tft.drawFastVLine(252, 84, 41, targetColor);
+
+		drawSettingsButton(25, 169, 125, 50, "CANCEL", pressedButton == 1);
+		drawSettingsButton(170, 169, 125, 50, "SAVE", pressedButton == 2,
+			touchCalibrationVerified);
+		tft.setTextDatum(TL_DATUM);
+	}
+
 	void drawSettingsScreen(int pressedButton = -1)
 	{
 		tft.fillScreen(TFT_BLACK);
@@ -1603,6 +1750,10 @@ public:
 			drawSettingsButton(175, 135, 120, 62, "RESET", pressedButton == 1,
 				false, true);
 		}
+		else if (settingsScreen == SettingsScreen::TouchCalibration)
+		{
+			drawTouchCalibrationScreen(pressedButton);
+		}
 
 		tft.setTextDatum(TL_DATUM);
 	}
@@ -1643,6 +1794,14 @@ public:
 				drawSettingsButton(175, 135, 120, 62, "RESET", pressed,
 					false, true);
 		}
+		else if (settingsScreen == SettingsScreen::TouchCalibration)
+		{
+			if (button == 1)
+				drawSettingsButton(25, 169, 125, 50, "CANCEL", pressed);
+			else if (button == 2)
+				drawSettingsButton(170, 169, 125, 50, "SAVE", pressed,
+					touchCalibrationVerified);
+		}
 		tft.setTextDatum(TL_DATUM);
 	}
 
@@ -1671,7 +1830,19 @@ public:
 		previewFullscreen = false;
 		wifiResetConfirmOpen = false;
 		settingsPressedButton = -1;
+		touchCalibrationVerified = false;
+		touchCalibrationEntryArmed = false;
+		touchCalibrationAwaitingSecondTap = false;
+		touchCalibrationFirstTapTime = 0;
+		pendingTouchRotation = touchRotation;
 		redrawAfterWifiResetDialog();
+	}
+
+	void showTouchCalibration(TouchRotation candidate)
+	{
+		pendingTouchRotation = candidate;
+		touchCalibrationVerified = false;
+		showSettingsScreen(SettingsScreen::TouchCalibration);
 	}
 
 	void showWifiResetConfirm()
@@ -1775,6 +1946,15 @@ public:
 			if (touchInside(25, 135, 120, 62)) return 0;
 			if (touchInside(175, 135, 120, 62)) return 1;
 		}
+		else if (settingsScreen == SettingsScreen::TouchCalibration)
+		{
+			if (touchInside(224, 76, 56, 56)) return 0;
+			const bool originalCancel =
+				originalTouchX >= 25 && originalTouchX < 150 &&
+				originalTouchY >= 169 && originalTouchY < 219;
+			if (touchInside(25, 169, 125, 50) || originalCancel) return 1;
+			if (touchCalibrationVerified && touchInside(170, 169, 125, 50)) return 2;
+		}
 		return -1;
 	}
 
@@ -1866,6 +2046,27 @@ public:
 				wifiResetRequested = true;
 			}
 		}
+		else if (settingsScreen == SettingsScreen::TouchCalibration)
+		{
+			if (button == 0)
+			{
+				touchCalibrationVerified = true;
+				settingsLastInteractionTime = millis();
+				drawTouchCalibrationScreen();
+			}
+			else if (button == 1)
+			{
+				closeSettings();
+			}
+			else if (button == 2 && touchCalibrationVerified)
+			{
+				touchRotation = pendingTouchRotation;
+				if (dashboardPreferencesReady)
+					dashboardPreferences.putUChar(
+						"touchRot", static_cast<uint8_t>(touchRotation));
+				closeSettings();
+			}
+		}
 	}
 
 	void readTouch()
@@ -1878,7 +2079,31 @@ public:
 
 		static bool wasTouched = false;
 		static bool waitForReleaseAfterScreenChange = false;
-		const bool isTouched = tft.getTouch(&touchX, &touchY);
+		uint16_t rawTouchX = 0;
+		uint16_t rawTouchY = 0;
+		const bool isTouched = tft.getTouch(&rawTouchX, &rawTouchY);
+		if (isTouched)
+		{
+			applyTouchRotation(
+				rawTouchX, rawTouchY, touchRotation, originalTouchX, originalTouchY);
+			const TouchRotation effectiveRotation =
+				settingsScreen == SettingsScreen::TouchCalibration
+					? pendingTouchRotation
+					: touchRotation;
+			applyTouchRotation(
+				rawTouchX, rawTouchY, effectiveRotation, touchX, touchY);
+		}
+
+		if (touchCalibrationAwaitingSecondTap &&
+			millis() - touchCalibrationFirstTapTime > TOUCH_CALIBRATION_DOUBLE_TAP_MS)
+		{
+			touchCalibrationAwaitingSecondTap = false;
+			touchCalibrationFirstTapTime = 0;
+			pendingTouchRotation = touchRotation;
+			if (!previousGameRunning && !screenSleeping &&
+				settingsScreen == SettingsScreen::Closed)
+				drawTouchCalibrationHint(false);
+		}
 
 		if (waitForReleaseAfterScreenChange)
 		{
@@ -1921,6 +2146,21 @@ public:
 		{
 			gameStoppedTimerStarted = true;
 			gameStoppedTime = millis();
+			if (settingsScreen == SettingsScreen::Closed)
+			{
+				const int candidate = calibrationRotationForTouch(rawTouchX, rawTouchY);
+				touchCalibrationEntryArmed = candidate >= 0;
+				if (candidate >= 0)
+				{
+					if (touchCalibrationAwaitingSecondTap &&
+						candidate != static_cast<int>(pendingTouchRotation))
+					{
+						touchCalibrationAwaitingSecondTap = false;
+						touchCalibrationFirstTapTime = 0;
+					}
+					pendingTouchRotation = static_cast<TouchRotation>(candidate);
+				}
+			}
 		}
 
 		if (settingsScreen != SettingsScreen::Closed)
@@ -1957,7 +2197,28 @@ public:
 
 		if (!isTouched && wasTouched)
 		{
-			showSettingsScreen(SettingsScreen::Main);
+			if (touchCalibrationEntryArmed)
+			{
+				if (touchCalibrationAwaitingSecondTap &&
+					millis() - touchCalibrationFirstTapTime <= TOUCH_CALIBRATION_DOUBLE_TAP_MS)
+				{
+					touchCalibrationAwaitingSecondTap = false;
+					showTouchCalibration(pendingTouchRotation);
+				}
+				else
+				{
+					touchCalibrationAwaitingSecondTap = true;
+					touchCalibrationFirstTapTime = millis();
+					drawTouchCalibrationHint(true);
+				}
+			}
+			else
+			{
+				touchCalibrationAwaitingSecondTap = false;
+				touchCalibrationFirstTapTime = 0;
+				showSettingsScreen(SettingsScreen::Main);
+			}
+			touchCalibrationEntryArmed = false;
 			waitForReleaseAfterScreenChange = true;
 		}
 
