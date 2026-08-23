@@ -198,13 +198,28 @@
 			tft.fillRect(176, 165, 44, 60, pale);
 			tft.setTextSize(1.0f);
 			tft.drawString(validFuel ? state.brakeBias + "%" : "--", 198, 174, 2);
-			// Narrower pump leaves enough visual room for the fuel percentage.
-			tft.fillRect(192, 184, 13, 21, dark);
+			// The pump doubles as a coarse pixel fuel gauge. Its color boundary
+			// always advances by complete horizontal rows: dark fuel below,
+			// lighter empty space above. Missing telemetry is treated as full.
+			const int fuelPercent = validFuel
+				? constrain(state.brakeBias.toInt(), 0, 100)
+				: 100;
+			constexpr int pumpTop = 184;
+			constexpr int pumpBottom = 207;
+			constexpr int pumpHeight = pumpBottom - pumpTop + 1;
+			const int darkRows = (fuelPercent * pumpHeight + 50) / 100;
+			const int liquidTop = pumpBottom - darkRows + 1;
+			for (int y = pumpTop; y <= pumpBottom; ++y)
+			{
+				const uint16_t rowColor = y >= liquidTop ? darkest : light;
+				if (y <= 204) tft.drawFastHLine(192, y, 13, rowColor);
+				if (y >= 205) tft.drawFastHLine(189, y, 19, rowColor);
+				if (y >= 186 && y <= 189) tft.drawFastHLine(205, y, 4, rowColor);
+				if (y >= 189 && y <= 203) tft.drawPixel(208, y, rowColor);
+				if (y >= 190 && y <= 196) tft.drawFastHLine(209, y, 3, rowColor);
+			}
+			// Keep the pump window cut out regardless of the displayed level.
 			tft.fillRect(195, 187, 7, 6, pale);
-			tft.fillRect(189, 205, 19, 3, dark);
-			tft.drawFastVLine(208, 189, 15, dark);
-			tft.fillRect(205, 186, 4, 4, dark);
-			tft.fillRect(209, 190, 3, 7, dark);
 			tft.drawString("FUEL", 198, 220, 1);
 		}
 
@@ -217,28 +232,37 @@
 		if (absChanged)
 		{
 			tft.fillRect(222, 165, 44, 60, pale);
-			// Circular ABS badge: active state is solid with reversed lettering.
+			// Compact circular ABS badge: active state is solid with reversed lettering.
 			if (absOn)
-				tft.fillCircle(244, 194, 12, absColor);
+				tft.fillCircle(244, 194, 11, absColor);
 			else
 			{
-				tft.drawCircle(244, 194, 12, absColor);
 				tft.drawCircle(244, 194, 11, absColor);
+				tft.drawCircle(244, 194, 10, absColor);
 			}
-			for (int angle = 120; angle <= 240; angle += 6)
+			for (int angle = 132; angle <= 228; angle += 3)
 			{
 				const float radians = angle * DEG_TO_RAD;
-				tft.fillCircle(244 + lroundf(cosf(radians) * 15.0f),
-					194 + lroundf(sinf(radians) * 15.0f), 1, absColor);
+				const int arcX = 244 + lroundf(cosf(radians) * 14.0f);
+				const int arcY = 194 + lroundf(sinf(radians) * 14.0f);
+				tft.drawPixel(arcX, arcY, absColor);
+				tft.drawPixel(arcX - 1, arcY, absColor);
 			}
-			for (int angle = -60; angle <= 60; angle += 6)
+			for (int angle = -48; angle <= 48; angle += 3)
 			{
 				const float radians = angle * DEG_TO_RAD;
-				tft.fillCircle(244 + lroundf(cosf(radians) * 15.0f),
-					194 + lroundf(sinf(radians) * 15.0f), 1, absColor);
+				const int arcX = 244 + lroundf(cosf(radians) * 14.0f);
+				const int arcY = 194 + lroundf(sinf(radians) * 14.0f);
+				tft.drawPixel(arcX, arcY, absColor);
+				tft.drawPixel(arcX + 1, arcY, absColor);
 			}
 			tft.setTextColor(absOn ? pale : absColor, absOn ? absColor : pale);
-			tft.drawString("ABS", 244, 194, 1);
+			tft.setTextDatum(TL_DATUM);
+			static constexpr int absTextWidth = 18;
+			static constexpr int absTextHeight = 8;
+			tft.drawString("ABS", 245 - absTextWidth / 2,
+				195 - absTextHeight / 2, 1);
+			tft.setTextDatum(MC_DATUM);
 			tft.setTextColor(darkest, pale);
 			tft.drawString("ABS", 244, 221, 1);
 		}
