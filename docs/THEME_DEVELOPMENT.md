@@ -10,7 +10,11 @@ The dashboard has three layers:
 2. `renderDashboard()` selects a renderer from the persisted `DashboardTheme` enum.
 3. Each renderer reads the same state and controls presentation only.
 
-Theme code lives primarily in `src/SHCustomProtocol.h`. A renderer must not parse packets, own a second telemetry model, reset Wi-Fi, or change the touch workflow.
+Theme renderers live in separate include fragments under `src/dashboard/themes/`. They are
+included inside `SHCustomProtocol` so existing member access, cache ownership and runtime
+behaviour remain unchanged. Shared telemetry, selector and runtime code stays in
+`src/SHCustomProtocol.h`. A renderer must not parse packets, own a second telemetry model,
+reset Wi-Fi, or change the touch workflow.
 
 The included themes are:
 
@@ -47,7 +51,9 @@ If a new telemetry field is genuinely required by every theme, add it to the sha
 1. Append a new explicit value to `DashboardTheme`; do not change existing values.
 2. Extend `isValidDashboardTheme()` and `dashboardThemeName()`.
 3. Add a renderer branch in `renderDashboard()`.
-4. Implement a renderer that accepts `const DashboardState &` and `forceUpdate`.
+4. Add the renderer to its own `src/dashboard/themes/<Name>Theme.inc` fragment. Keep it as
+   an `SHCustomProtocol` member accepting `const DashboardState &` and `forceUpdate`; do not
+   introduce a separate runtime object merely to add a theme.
 5. Append the theme to the centralized `DASHBOARD_THEMES` catalog. Theme Selection uses
    this catalog for looping navigation and indicators, so it must not maintain a separate
    theme count or list.
