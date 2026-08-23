@@ -151,7 +151,7 @@ No IP address configuration is required.
 If the display looks correct but touch input is rotated, use **TOUCH SETUP** at the
 top of the waiting-for-telemetry screen:
 
-1. Tap **TOUCH SETUP** once; the prompt changes to **TAP AGAIN TO OPEN**.
+1. Tap **TOUCH SETUP** once; the prompt changes to **TOUCH AGAIN**.
 2. Tap the same physical area again within three seconds.
 3. Tap the target shown on the Touch Setup screen to verify the detected orientation.
 4. Select **SAVE** to store it, or **CANCEL** to keep the previous orientation.

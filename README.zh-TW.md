@@ -147,7 +147,7 @@ http://192.168.4.1
 
 如果畫面顯示正常，但觸控方向旋轉了，可在等待遙測畫面上方使用 **TOUCH SETUP**：
 
-1. 點一下 **TOUCH SETUP**，提示會變成 **TAP AGAIN TO OPEN**。
+1. 點一下 **TOUCH SETUP**，提示會變成 **TOUCH AGAIN**。
 2. 在三秒內再次點擊相同的實體位置。
 3. 進入 Touch Setup 後，點擊畫面上的測試靶以確認偵測到的方向。
 4. 點擊 **SAVE** 儲存，或點擊 **CANCEL** 保留原本方向。
