@@ -1,4 +1,9 @@
 {
+  "1.7.2": [
+    "Added an idle-screen Touch Setup flow that detects and saves 0, 90, 180 or 270 degree touch orientation corrections.",
+    "Added double-tap entry, verification and dual-orientation Cancel handling so accidental or incorrect calibration remains recoverable.",
+    "Touch Setup now exits immediately when GT7 telemetry resumes and never blocks heartbeat, UDP or dashboard rendering."
+  ],
   "1.7.1": [
     "Added a row-based fuel-level treatment to the Pocket fuel-pump icon, with a clear light-above and dark-below liquid boundary.",
     "Updated Theme Preview mock telemetry to demonstrate the Pocket fuel indicator at 80 percent.",
