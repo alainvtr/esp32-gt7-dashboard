@@ -412,8 +412,8 @@ private:
 	{
 		constexpr int targetX = SCREEN_WIDTH / 2;
 		constexpr int targetY = 18;
-		constexpr int hitHalfWidth = 82;
-		constexpr int hitHeight = 38;
+		constexpr int hitHalfWidth = 48;
+		constexpr int hitHeight = 26;
 		int closestRotation = -1;
 		uint32_t closestDistance = UINT32_MAX;
 		for (uint8_t value = 0; value < 4; ++value)
@@ -1315,14 +1315,25 @@ public:
 
 	void drawTouchCalibrationHint(bool confirm)
 	{
-		const uint16_t color = confirm
-			? tft.color565(210, 82, 126)
+		const char *label = confirm ? "TOUCH AGAIN" : "TOUCH SETUP";
+		const uint16_t textColor = confirm
+			? tft.color565(218, 111, 148)
 			: tft.color565(105, 105, 105);
+		constexpr int iconRadius = 4;
+		constexpr int iconGap = 5;
+		tft.setTextFont(1);
+		const int textWidth = tft.textWidth(label);
+		const int groupWidth = iconRadius * 2 + iconGap + textWidth;
+		const int groupX = X_CENTER - groupWidth / 2;
+		const int iconX = groupX + iconRadius - 2;
+		const int textX = groupX + iconRadius * 2 + iconGap;
+
 		tft.fillRect(62, 4, 196, 29, TFT_BLACK);
-		tft.setTextDatum(MC_DATUM);
-		tft.setTextColor(color, TFT_BLACK);
-		tft.drawString(confirm ? "TAP AGAIN TO OPEN" : "TOUCH SETUP",
-			X_CENTER, 18, 1);
+		tft.drawCircle(iconX, 17, iconRadius, textColor);
+		tft.fillCircle(iconX, 17, 1, textColor);
+		tft.setTextDatum(ML_DATUM);
+		tft.setTextColor(textColor, TFT_BLACK);
+		tft.drawString(label, textX, 18, 1);
 	}
 
 	void drawConnectingScreenBase()

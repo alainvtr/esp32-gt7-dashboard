@@ -146,6 +146,20 @@ The dashboard will automatically discover your PS5 on the local network.
 
 No IP address configuration is required.
 
+### Touch Orientation Setup
+
+If the display looks correct but touch input is rotated, use **TOUCH SETUP** at the
+top of the waiting-for-telemetry screen:
+
+1. Tap **TOUCH SETUP** once; the prompt changes to **TOUCH AGAIN**.
+2. Tap the same physical area again within three seconds.
+3. Tap the target shown on the Touch Setup screen to verify the detected orientation.
+4. Select **SAVE** to store it, or **CANCEL** to keep the previous orientation.
+
+An incomplete setup times out without saving, and incoming GT7 telemetry closes the
+setup immediately so it never holds the dashboard open. If an incorrect orientation is
+saved, repeat the same procedure from the waiting screen to replace it.
+
 
 ---
 
