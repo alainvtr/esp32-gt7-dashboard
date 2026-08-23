@@ -412,8 +412,8 @@ private:
 	{
 		constexpr int targetX = SCREEN_WIDTH / 2;
 		constexpr int targetY = 18;
-		constexpr int hitHalfWidth = 55;
-		constexpr int hitHeight = 32;
+		constexpr int hitHalfWidth = 48;
+		constexpr int hitHeight = 26;
 		int closestRotation = -1;
 		uint32_t closestDistance = UINT32_MAX;
 		for (uint8_t value = 0; value < 4; ++value)
