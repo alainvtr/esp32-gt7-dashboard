@@ -217,28 +217,37 @@
 		if (absChanged)
 		{
 			tft.fillRect(222, 165, 44, 60, pale);
-			// Circular ABS badge: active state is solid with reversed lettering.
+			// Compact circular ABS badge: active state is solid with reversed lettering.
 			if (absOn)
-				tft.fillCircle(244, 194, 12, absColor);
+				tft.fillCircle(244, 194, 11, absColor);
 			else
 			{
-				tft.drawCircle(244, 194, 12, absColor);
 				tft.drawCircle(244, 194, 11, absColor);
+				tft.drawCircle(244, 194, 10, absColor);
 			}
-			for (int angle = 120; angle <= 240; angle += 6)
+			for (int angle = 132; angle <= 228; angle += 3)
 			{
 				const float radians = angle * DEG_TO_RAD;
-				tft.fillCircle(244 + lroundf(cosf(radians) * 15.0f),
-					194 + lroundf(sinf(radians) * 15.0f), 1, absColor);
+				const int arcX = 244 + lroundf(cosf(radians) * 14.0f);
+				const int arcY = 194 + lroundf(sinf(radians) * 14.0f);
+				tft.drawPixel(arcX, arcY, absColor);
+				tft.drawPixel(arcX - 1, arcY, absColor);
 			}
-			for (int angle = -60; angle <= 60; angle += 6)
+			for (int angle = -48; angle <= 48; angle += 3)
 			{
 				const float radians = angle * DEG_TO_RAD;
-				tft.fillCircle(244 + lroundf(cosf(radians) * 15.0f),
-					194 + lroundf(sinf(radians) * 15.0f), 1, absColor);
+				const int arcX = 244 + lroundf(cosf(radians) * 14.0f);
+				const int arcY = 194 + lroundf(sinf(radians) * 14.0f);
+				tft.drawPixel(arcX, arcY, absColor);
+				tft.drawPixel(arcX + 1, arcY, absColor);
 			}
 			tft.setTextColor(absOn ? pale : absColor, absOn ? absColor : pale);
-			tft.drawString("ABS", 244, 194, 1);
+			tft.setTextDatum(TL_DATUM);
+			static constexpr int absTextWidth = 18;
+			static constexpr int absTextHeight = 8;
+			tft.drawString("ABS", 245 - absTextWidth / 2,
+				195 - absTextHeight / 2, 1);
+			tft.setTextDatum(MC_DATUM);
 			tft.setTextColor(darkest, pale);
 			tft.drawString("ABS", 244, 221, 1);
 		}
