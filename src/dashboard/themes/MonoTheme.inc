@@ -17,6 +17,47 @@
 		prevData[id] = cacheState;
 	}
 
+	void drawMonoGear(const String &gear, uint16_t color, bool forceUpdate)
+	{
+		const String cacheState = gear + ":" + String(color);
+		if (!forceUpdate && prevData["monoGear"] == cacheState) return;
+
+		static constexpr int32_t x = 106;
+		static constexpr int32_t y = 56;
+		static constexpr int32_t width = 108;
+		static constexpr int32_t height = 80;
+		tft.fillRect(x, y, width, height, TFT_BLACK);
+
+		if (gear == "N")
+		{
+			// Font 7 only contains digits. Draw a matching heavy, angular N for neutral.
+			static constexpr int32_t left = 134;
+			static constexpr int32_t top = 63;
+			static constexpr int32_t glyphWidth = 52;
+			static constexpr int32_t glyphHeight = 66;
+			static constexpr int32_t stroke = 8;
+			tft.fillRect(left, top, stroke, glyphHeight, color);
+			tft.fillRect(left + glyphWidth - stroke, top, stroke, glyphHeight, color);
+			tft.fillTriangle(left + stroke, top,
+				left + stroke, top + 12,
+				left + glyphWidth - stroke, top + glyphHeight, color);
+			tft.fillTriangle(left + stroke, top,
+				left + glyphWidth - stroke, top + glyphHeight - 12,
+				left + glyphWidth - stroke, top + glyphHeight, color);
+		}
+		else
+		{
+			tft.setTextColor(color, TFT_BLACK);
+			tft.setTextDatum(MC_DATUM);
+			tft.setTextSize(1.62f, 1.52f);
+			tft.drawString(gear, x + width / 2, y + height / 2, 7);
+			tft.setTextSize(1.0f);
+			tft.setTextDatum(TL_DATUM);
+		}
+
+		prevData["monoGear"] = cacheState;
+	}
+
 	void drawMonoValueBuffered(int32_t x, int32_t y, int32_t width,
 		int32_t height, const String &value, const String &id, uint16_t color,
 		uint8_t font, textdatum_t datum, bool forceUpdate, LGFX_Sprite &sprite,
@@ -353,8 +394,7 @@
 			1, MC_DATUM, forceUpdate, deltaSprite, deltaSpriteCreated,
 			1.52f, 1.38f);
 
-		drawMonoValue(106, 56, 108, 80, state.gear, "monoGear", white,
-			7, MC_DATUM, forceUpdate, 1.62f, 1.52f);
+		drawMonoGear(state.gear, white, forceUpdate);
 		drawMonoSpeed(state.speed, forceUpdate);
 
 		drawMonoValue(223, 63, 94, 27, state.tyrePressureFrontRight,
