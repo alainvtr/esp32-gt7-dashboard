@@ -366,7 +366,7 @@ private:
 		themePreviewData.tyrePressureFrontLeft = "4";
 		themePreviewData.tyrePressureFrontRight = "5";
 		themePreviewData.tyrePressureRearLeft = "3/10";
-		themePreviewData.brakeBias = "60";
+		themePreviewData.brakeBias = "80";
 		themePreviewData.fuelAlertActive = "60";
 		themePreviewData.tcLevel = "68";
 		themePreviewData.tcFilteredLevel = "62";

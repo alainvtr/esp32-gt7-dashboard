@@ -198,13 +198,28 @@
 			tft.fillRect(176, 165, 44, 60, pale);
 			tft.setTextSize(1.0f);
 			tft.drawString(validFuel ? state.brakeBias + "%" : "--", 198, 174, 2);
-			// Narrower pump leaves enough visual room for the fuel percentage.
-			tft.fillRect(192, 184, 13, 21, dark);
+			// The pump doubles as a coarse pixel fuel gauge. Its color boundary
+			// always advances by complete horizontal rows: dark fuel below,
+			// lighter empty space above. Missing telemetry is treated as full.
+			const int fuelPercent = validFuel
+				? constrain(state.brakeBias.toInt(), 0, 100)
+				: 100;
+			constexpr int pumpTop = 184;
+			constexpr int pumpBottom = 207;
+			constexpr int pumpHeight = pumpBottom - pumpTop + 1;
+			const int darkRows = (fuelPercent * pumpHeight + 50) / 100;
+			const int liquidTop = pumpBottom - darkRows + 1;
+			for (int y = pumpTop; y <= pumpBottom; ++y)
+			{
+				const uint16_t rowColor = y >= liquidTop ? darkest : light;
+				if (y <= 204) tft.drawFastHLine(192, y, 13, rowColor);
+				if (y >= 205) tft.drawFastHLine(189, y, 19, rowColor);
+				if (y >= 186 && y <= 189) tft.drawFastHLine(205, y, 4, rowColor);
+				if (y >= 189 && y <= 203) tft.drawPixel(208, y, rowColor);
+				if (y >= 190 && y <= 196) tft.drawFastHLine(209, y, 3, rowColor);
+			}
+			// Keep the pump window cut out regardless of the displayed level.
 			tft.fillRect(195, 187, 7, 6, pale);
-			tft.fillRect(189, 205, 19, 3, dark);
-			tft.drawFastVLine(208, 189, 15, dark);
-			tft.fillRect(205, 186, 4, 4, dark);
-			tft.fillRect(209, 190, 3, 7, dark);
 			tft.drawString("FUEL", 198, 220, 1);
 		}
 
