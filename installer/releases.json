@@ -3,9 +3,10 @@
     {
       "version": "1.7.3",
       "notes": [
-        "Improved Pocket fuel-level updates to reduce flicker and extracted reusable fuel, ABS and TCS dashboard icons.",
-        "Kept Pocket ABS and TCS indicators stable while distinguishing inactive and active telemetry states.",
-        "Refined fuel-pump icon placement in the GT3 and Mono themes."
+        "Added the Pocket dashboard theme with a Game Boy-inspired pixel interface optimized for 320 x 240 displays.",
+        "Added telemetry-driven pixel RPM, timing, fuel-level, ABS and TCS indicators, with isolated redraws for stable updates.",
+        "Added a persistent idle-screen Touch Setup flow for correcting 0, 90, 180 or 270 degree touch orientation.",
+        "Improved shared dashboard icon rendering and refined fuel-pump placement across Pocket, GT3 and Mono themes."
       ],
       "manifests": {
         "ili9341": "versions/1.7.3/manifest-ili9341.json",
