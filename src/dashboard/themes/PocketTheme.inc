@@ -214,9 +214,17 @@
 				const uint16_t rowColor = y >= liquidTop ? darkest : light;
 				if (y <= 204) tft.drawFastHLine(192, y, 13, rowColor);
 				if (y >= 205) tft.drawFastHLine(189, y, 19, rowColor);
-				if (y >= 186 && y <= 189) tft.drawFastHLine(205, y, 4, rowColor);
-				if (y >= 189 && y <= 203) tft.drawPixel(208, y, rowColor);
-				if (y >= 190 && y <= 196) tft.drawFastHLine(209, y, 3, rowColor);
+				// Three-pixel diagonal nozzle flowing into a slim vertical hose.
+				if (y >= 184 && y <= 188)
+				{
+					const int nozzleX = 205 + (y - 184);
+					tft.drawFastHLine(nozzleX + (y == 184 ? 1 : 0), y,
+						y == 184 ? 2 : 3, rowColor);
+				}
+				if (y >= 189 && y <= 203)
+					tft.drawFastHLine(208, y, 2, rowColor);
+				if (y >= 189 && y <= 196)
+					tft.drawFastHLine(209, y, 3, rowColor);
 			}
 			// Keep the pump window cut out regardless of the displayed level.
 			tft.fillRect(195, 187, 7, 6, pale);
