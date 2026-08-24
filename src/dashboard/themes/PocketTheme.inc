@@ -10,9 +10,11 @@
 		static constexpr uint8_t N[7] = {17, 25, 25, 21, 19, 19, 17};
 		static constexpr uint8_t R[7] = {30, 17, 17, 30, 20, 18, 17};
 		static constexpr uint8_t DASH[7] = {0, 0, 0, 14, 0, 0, 0};
+		static constexpr uint8_t SLASH[7] = {1, 2, 2, 4, 8, 8, 16};
 		if (c == 'N') return N[row];
 		if (c == 'R') return R[row];
 		if (c == '-') return DASH[row];
+		if (c == '/') return SLASH[row];
 		return 0;
 	}
 
@@ -79,6 +81,28 @@
 		tft.setTextSize(1.0f);
 		tft.setTextDatum(TL_DATUM);
 		prevData[id] = cacheState;
+	}
+
+	void drawPocketPixelValue(int x, int y, int w, int h,
+		const String &value, const String &id, uint16_t color,
+		uint16_t background, int scale, bool forceUpdate)
+	{
+		if (!forceUpdate && prevData[id] == value) return;
+		tft.fillRect(x, y, w, h, background);
+		const int pitch = 6 * scale;
+		const int textWidth = value.length() * pitch - scale;
+		const int startX = x + (w - textWidth) / 2;
+		const int startY = y + (h - 7 * scale) / 2;
+		for (size_t i = 0; i < value.length(); ++i)
+			for (int row = 0; row < 7; ++row)
+			{
+				const uint8_t bits = pocketGlyphRow(value[i], row);
+				for (int col = 0; col < 5; ++col)
+					if (bits & (1 << (4 - col)))
+						tft.fillRect(startX + i * pitch + col * scale,
+							startY + row * scale, scale, scale, color);
+			}
+		prevData[id] = value;
 	}
 
 	void drawPocketValueBuffered(int x, int y, int w, int h,
@@ -179,6 +203,8 @@
 
 	void drawPocketFuelAids(const DashboardState &state, bool forceUpdate)
 	{
+		const bool absOn = isActiveValue(state.absActive);
+		const bool tcsOn = isActiveValue(state.tcActive);
 		const bool fuelChanged = forceUpdate ||
 			prevData["pocketFuel"] != state.brakeBias;
 		const bool absChanged = forceUpdate ||
@@ -195,7 +221,10 @@
 		const bool validFuel = state.brakeBias != "--" && state.brakeBias.length();
 		if (fuelChanged)
 		{
-			tft.fillRect(176, 165, 44, 60, pale);
+			if (forceUpdate)
+				tft.fillRect(176, 165, 44, 60, pale);
+			else
+				tft.fillRect(176, 165, 44, 18, pale);
 			tft.setTextSize(1.0f);
 			tft.drawString(validFuel ? state.brakeBias + "%" : "--", 198, 174, 2);
 			// The pump doubles as a coarse pixel fuel gauge. Its color boundary
@@ -204,105 +233,39 @@
 			const int fuelPercent = validFuel
 				? constrain(state.brakeBias.toInt(), 0, 100)
 				: 100;
-			constexpr int pumpTop = 184;
-			constexpr int pumpBottom = 207;
-			constexpr int pumpHeight = pumpBottom - pumpTop + 1;
-			const int darkRows = (fuelPercent * pumpHeight + 50) / 100;
-			const int liquidTop = pumpBottom - darkRows + 1;
-			for (int y = pumpTop; y <= pumpBottom; ++y)
-			{
-				const uint16_t rowColor = y >= liquidTop ? darkest : light;
-				if (y <= 204) tft.drawFastHLine(192, y, 13, rowColor);
-				if (y >= 205) tft.drawFastHLine(189, y, 19, rowColor);
-				if (y >= 186 && y <= 189) tft.drawFastHLine(205, y, 4, rowColor);
-				if (y >= 189 && y <= 203) tft.drawPixel(208, y, rowColor);
-				if (y >= 190 && y <= 196) tft.drawFastHLine(209, y, 3, rowColor);
-			}
-			// Keep the pump window cut out regardless of the displayed level.
-			tft.fillRect(195, 187, 7, 6, pale);
-			tft.drawString("FUEL", 198, 220, 1);
+			drawDashboardFuelPumpIcon(191, 184, fuelPercent,
+				darkest, light, pale);
+			if (forceUpdate)
+				tft.drawString("FUEL", 198, 220, 1);
 		}
 
-		const bool absOn = isActiveValue(state.absActive);
-		const bool tcsOn = isActiveValue(state.tcActive);
 		// Match the RPM bar: inactive is pale, active is the solid dark tone.
-		const uint16_t absColor = absOn ? darkest : light;
 		const uint16_t tcsColor = tcsOn ? darkest : light;
 
 		if (absChanged)
 		{
-			tft.fillRect(222, 165, 44, 60, pale);
-			// Compact circular ABS badge: active state is solid with reversed lettering.
-			if (absOn)
-				tft.fillCircle(244, 194, 11, absColor);
+			if (forceUpdate)
+				tft.fillRect(222, 165, 44, 60, pale);
 			else
-			{
-				tft.drawCircle(244, 194, 11, absColor);
-				tft.drawCircle(244, 194, 10, absColor);
-			}
-			for (int angle = 132; angle <= 228; angle += 3)
-			{
-				const float radians = angle * DEG_TO_RAD;
-				const int arcX = 244 + lroundf(cosf(radians) * 14.0f);
-				const int arcY = 194 + lroundf(sinf(radians) * 14.0f);
-				tft.drawPixel(arcX, arcY, absColor);
-				tft.drawPixel(arcX - 1, arcY, absColor);
-			}
-			for (int angle = -48; angle <= 48; angle += 3)
-			{
-				const float radians = angle * DEG_TO_RAD;
-				const int arcX = 244 + lroundf(cosf(radians) * 14.0f);
-				const int arcY = 194 + lroundf(sinf(radians) * 14.0f);
-				tft.drawPixel(arcX, arcY, absColor);
-				tft.drawPixel(arcX + 1, arcY, absColor);
-			}
-			tft.setTextColor(absOn ? pale : absColor, absOn ? absColor : pale);
-			tft.setTextDatum(TL_DATUM);
-			static constexpr int absTextWidth = 18;
-			static constexpr int absTextHeight = 8;
-			tft.drawString("ABS", 245 - absTextWidth / 2,
-				195 - absTextHeight / 2, 1);
+				tft.fillRect(228, 179, 33, 31, pale);
+			drawDashboardAbsIcon(244, 194, absOn,
+				darkest, light, pale);
 			tft.setTextDatum(MC_DATUM);
 			tft.setTextColor(darkest, pale);
-			tft.drawString("ABS", 244, 221, 1);
+			if (forceUpdate)
+				tft.drawString("ABS", 244, 220, 1);
 		}
 
 		if (tcsChanged)
 		{
-			tft.fillRect(268, 165, 38, 60, pale);
+			if (forceUpdate)
+				tft.fillRect(268, 165, 38, 60, pale);
+			else
+				tft.fillRect(278, 180, 25, 31, pale);
 			tft.setTextColor(darkest, pale);
-		// Chunky rear-view slipping-car glyph, drawn for this 42 px status cell.
-		// Crisp symmetrical trapezoid roof; the inset trapezoid is the rear window.
-		tft.fillTriangle(284, 181, 294, 181, 279, 189, tcsColor);
-		tft.fillTriangle(294, 181, 299, 189, 279, 189, tcsColor);
-		tft.fillTriangle(285, 183, 293, 183, 282, 188, pale);
-		tft.fillTriangle(293, 183, 296, 188, 282, 188, pale);
-
-		// Solid rear body with two square, background-colour lamps.
-		tft.fillRect(279, 189, 22, 10, tcsColor);
-		tft.fillRect(282, 191, 4, 3, pale);
-		tft.fillRect(294, 191, 4, 3, pale);
-		tft.fillRect(281, 199, 5, 3, tcsColor);
-		tft.fillRect(294, 199, 5, 3, tcsColor);
-
-		// Rounded pixel S trails: more intermediate points remove sharp elbows.
-		static constexpr int8_t SKID[][2] = {
-			{3, 0}, {4, 1}, {3, 2}, {1, 3}, {-1, 4},
-			{-2, 5}, {-1, 6}, {1, 7}, {4, 7}};
-		for (int trail = 0; trail < 2; ++trail)
-		{
-			const int originX = 280 + trail * 13;
-			for (size_t i = 0; i < sizeof(SKID) / sizeof(SKID[0]); ++i)
-			{
-				const int x = originX + SKID[i][0];
-				const int y = 202 + SKID[i][1];
-				tft.fillCircle(x, y, 1, tcsColor);
-				if (i > 0)
-					tft.drawLine(originX + SKID[i - 1][0], 202 + SKID[i - 1][1],
-						x, y, tcsColor);
-			}
-		}
-		tft.drawString("TCS", 290, 221, 1);
+			drawDashboardTcsIcon(279, 181, tcsColor, pale);
+			if (forceUpdate)
+				tft.drawString("TCS", 290, 220, 1);
 		}
 
 		// Three equal status columns.
@@ -447,10 +410,10 @@
 			tft.setTextDatum(TL_DATUM);
 		}
 
-		drawPocketValue(43, 12, 90, 22, state.tyrePressureRearLeft,
-			"pocketLap", darkest, pale, 2, 1.35f, 1.18f, forceUpdate);
-		drawPocketValue(215, 13, 92, 20, state.tyrePressureFrontRight,
-			"pocketPos", darkest, pale, 2, 1.35f, 1.18f, forceUpdate);
+		drawPocketPixelValue(43, 12, 90, 22, state.tyrePressureRearLeft,
+			"pocketLap", darkest, pale, 2, forceUpdate);
+		drawPocketPixelValue(215, 13, 92, 20, state.tyrePressureFrontRight,
+			"pocketPos", darkest, pale, 2, forceUpdate);
 		drawPocketGearSpeed(state, forceUpdate);
 		drawPocketValue(210, 59, 97, 24, state.bestLapTime,
 			"pocketBest", darkest, pale, 1, 1.65f, 1.50f, forceUpdate);

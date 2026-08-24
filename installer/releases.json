@@ -1,15 +1,16 @@
 {
   "versions": [
     {
-      "version": "1.7.2",
+      "version": "1.7.3",
       "notes": [
-        "Added an idle-screen Touch Setup flow that detects and saves 0, 90, 180 or 270 degree touch orientation corrections.",
-        "Added double-tap entry, verification and dual-orientation Cancel handling so accidental or incorrect calibration remains recoverable.",
-        "Touch Setup now exits immediately when GT7 telemetry resumes and never blocks heartbeat, UDP or dashboard rendering."
+        "Added the Pocket dashboard theme with a Game Boy-inspired pixel interface optimized for 320 x 240 displays.",
+        "Added telemetry-driven pixel RPM, timing, fuel-level, ABS and TCS indicators, with isolated redraws for stable updates.",
+        "Added a persistent idle-screen Touch Setup flow for correcting 0, 90, 180 or 270 degree touch orientation.",
+        "Improved shared dashboard icon rendering and refined fuel-pump placement across Pocket, GT3 and Mono themes."
       ],
       "manifests": {
-        "ili9341": "versions/1.7.2/manifest-ili9341.json",
-        "st7789": "versions/1.7.2/manifest-st7789.json"
+        "ili9341": "versions/1.7.3/manifest-ili9341.json",
+        "st7789": "versions/1.7.3/manifest-st7789.json"
       }
     },
     {
