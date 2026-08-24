@@ -1269,6 +1269,8 @@ public:
 		created = false;
 	}
 
+#include "dashboard/DashboardIcons.inc"
+
 #include "dashboard/themes/RetroTheme.inc"
 
 #include "dashboard/themes/RadarTheme.inc"

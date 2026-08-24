@@ -203,6 +203,8 @@
 
 	void drawPocketFuelAids(const DashboardState &state, bool forceUpdate)
 	{
+		const bool absOn = isActiveValue(state.absActive);
+		const bool tcsOn = isActiveValue(state.tcActive);
 		const bool fuelChanged = forceUpdate ||
 			prevData["pocketFuel"] != state.brakeBias;
 		const bool absChanged = forceUpdate ||
@@ -219,7 +221,10 @@
 		const bool validFuel = state.brakeBias != "--" && state.brakeBias.length();
 		if (fuelChanged)
 		{
-			tft.fillRect(176, 165, 44, 60, pale);
+			if (forceUpdate)
+				tft.fillRect(176, 165, 44, 60, pale);
+			else
+				tft.fillRect(176, 165, 44, 18, pale);
 			tft.setTextSize(1.0f);
 			tft.drawString(validFuel ? state.brakeBias + "%" : "--", 198, 174, 2);
 			// The pump doubles as a coarse pixel fuel gauge. Its color boundary
@@ -228,113 +233,39 @@
 			const int fuelPercent = validFuel
 				? constrain(state.brakeBias.toInt(), 0, 100)
 				: 100;
-			constexpr int pumpTop = 184;
-			constexpr int pumpBottom = 207;
-			constexpr int pumpHeight = pumpBottom - pumpTop + 1;
-			const int darkRows = (fuelPercent * pumpHeight + 50) / 100;
-			const int liquidTop = pumpBottom - darkRows + 1;
-			for (int y = pumpTop; y <= pumpBottom; ++y)
-			{
-				const uint16_t rowColor = y >= liquidTop ? darkest : light;
-				if (y <= 204) tft.drawFastHLine(191, y, 13, rowColor);
-				if (y >= 205) tft.drawFastHLine(188, y, 19, rowColor);
-				// Three-pixel diagonal nozzle flowing into a slim vertical hose.
-				if (y >= 185 && y <= 189)
-				{
-					const int nozzleX = 204 + (y - 185);
-					tft.drawFastHLine(nozzleX + (y == 185 ? 1 : 0), y,
-						y == 185 ? 2 : 3, rowColor);
-				}
-				if (y >= 190 && y <= 204)
-					tft.drawFastHLine(207, y, 2, rowColor);
-				if (y >= 190 && y <= 197)
-					tft.drawFastHLine(208, y, 3, rowColor);
-			}
-			// Keep the pump window cut out regardless of the displayed level.
-			tft.fillRect(194, 187, 7, 6, pale);
-			tft.drawString("FUEL", 198, 220, 1);
+			drawDashboardFuelPumpIcon(191, 184, fuelPercent,
+				darkest, light, pale);
+			if (forceUpdate)
+				tft.drawString("FUEL", 198, 220, 1);
 		}
 
-		const bool absOn = isActiveValue(state.absActive);
-		const bool tcsOn = isActiveValue(state.tcActive);
 		// Match the RPM bar: inactive is pale, active is the solid dark tone.
-		const uint16_t absColor = absOn ? darkest : light;
 		const uint16_t tcsColor = tcsOn ? darkest : light;
 
 		if (absChanged)
 		{
-			tft.fillRect(222, 165, 44, 60, pale);
-			// Compact circular ABS badge: active state is solid with reversed lettering.
-			if (absOn)
-				tft.fillCircle(244, 194, 11, absColor);
+			if (forceUpdate)
+				tft.fillRect(222, 165, 44, 60, pale);
 			else
-			{
-				tft.drawCircle(244, 194, 11, absColor);
-				tft.drawCircle(244, 194, 10, absColor);
-			}
-			for (int angle = 132; angle <= 228; angle += 3)
-			{
-				const float radians = angle * DEG_TO_RAD;
-				const int arcX = 244 + lroundf(cosf(radians) * 14.0f);
-				const int arcY = 194 + lroundf(sinf(radians) * 14.0f);
-				tft.drawPixel(arcX, arcY, absColor);
-				tft.drawPixel(arcX - 1, arcY, absColor);
-			}
-			for (int angle = -48; angle <= 48; angle += 3)
-			{
-				const float radians = angle * DEG_TO_RAD;
-				const int arcX = 244 + lroundf(cosf(radians) * 14.0f);
-				const int arcY = 194 + lroundf(sinf(radians) * 14.0f);
-				tft.drawPixel(arcX, arcY, absColor);
-				tft.drawPixel(arcX + 1, arcY, absColor);
-			}
-			tft.setTextColor(absOn ? pale : absColor, absOn ? absColor : pale);
-			tft.setTextDatum(TL_DATUM);
-			static constexpr int absTextWidth = 18;
-			static constexpr int absTextHeight = 8;
-			tft.drawString("ABS", 245 - absTextWidth / 2,
-				195 - absTextHeight / 2, 1);
+				tft.fillRect(228, 179, 33, 31, pale);
+			drawDashboardAbsIcon(244, 194, absOn,
+				darkest, light, pale);
 			tft.setTextDatum(MC_DATUM);
 			tft.setTextColor(darkest, pale);
-			tft.drawString("ABS", 244, 220, 1);
+			if (forceUpdate)
+				tft.drawString("ABS", 244, 220, 1);
 		}
 
 		if (tcsChanged)
 		{
-			tft.fillRect(268, 165, 38, 60, pale);
+			if (forceUpdate)
+				tft.fillRect(268, 165, 38, 60, pale);
+			else
+				tft.fillRect(278, 180, 25, 31, pale);
 			tft.setTextColor(darkest, pale);
-		// Chunky rear-view slipping-car glyph, drawn for this 42 px status cell.
-		// Crisp symmetrical trapezoid roof; the inset trapezoid is the rear window.
-		tft.fillTriangle(284, 181, 294, 181, 279, 189, tcsColor);
-		tft.fillTriangle(295, 181, 300, 189, 279, 189, tcsColor);
-		tft.fillTriangle(285, 183, 293, 183, 282, 188, pale);
-		tft.fillTriangle(294, 183, 297, 188, 282, 188, pale);
-
-		// Solid rear body with two square, background-colour lamps.
-		tft.fillRect(279, 189, 22, 10, tcsColor);
-		tft.fillRect(282, 191, 4, 3, pale);
-		tft.fillRect(294, 191, 4, 3, pale);
-		tft.fillRect(281, 199, 5, 3, tcsColor);
-		tft.fillRect(294, 199, 5, 3, tcsColor);
-
-		// Rounded pixel S trails: more intermediate points remove sharp elbows.
-		static constexpr int8_t SKID[][2] = {
-			{3, 0}, {4, 1}, {3, 2}, {1, 3}, {-1, 4},
-			{-2, 5}, {-1, 6}, {1, 7}, {4, 7}};
-		for (int trail = 0; trail < 2; ++trail)
-		{
-			const int originX = 280 + trail * 13;
-			for (size_t i = 0; i < sizeof(SKID) / sizeof(SKID[0]); ++i)
-			{
-				const int x = originX + SKID[i][0];
-				const int y = 202 + SKID[i][1];
-				tft.fillCircle(x, y, 1, tcsColor);
-				if (i > 0)
-					tft.drawLine(originX + SKID[i - 1][0], 202 + SKID[i - 1][1],
-						x, y, tcsColor);
-			}
-		}
-		tft.drawString("TCS", 290, 220, 1);
+			drawDashboardTcsIcon(279, 181, tcsColor, pale);
+			if (forceUpdate)
+				tft.drawString("TCS", 290, 220, 1);
 		}
 
 		// Three equal status columns.

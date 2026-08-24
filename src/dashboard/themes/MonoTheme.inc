@@ -365,11 +365,11 @@
 			tft.drawString("LAST", 225, 145, 1);
 
 			// Balanced status row: driving aids, centred fuel gauge, fuel and REM.
-			tft.drawRect(110, 197, 9, 13, muted);
-			tft.drawRect(112, 199, 5, 4, muted);
-			tft.drawFastHLine(109, 212, 12, muted);
-			tft.drawFastVLine(120, 201, 8, muted);
-			tft.drawLine(118, 199, 121, 202, muted);
+			tft.drawRect(110, 196, 9, 13, muted);
+			tft.drawRect(112, 198, 5, 4, muted);
+			tft.drawFastHLine(109, 211, 12, muted);
+			tft.drawFastVLine(120, 200, 8, muted);
+			tft.drawLine(118, 198, 121, 201, muted);
 			tft.setTextDatum(ML_DATUM);
 			tft.drawString("ABS", 6, 203, 1);
 			tft.drawString("TCS", 51, 203, 1);

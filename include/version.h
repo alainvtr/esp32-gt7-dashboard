@@ -1,3 +1,3 @@
 #pragma once
 
-inline constexpr char GT7_DASH_VERSION[] = "1.7.2";
+inline constexpr char GT7_DASH_VERSION[] = "1.7.3";

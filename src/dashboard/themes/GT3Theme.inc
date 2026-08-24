@@ -403,9 +403,9 @@
 		if (!forceUpdate && prevData[id] == state) return;
 
 		tft.fillRect(x, y, width, height, TFT_BLACK);
-		const int32_t pumpX = x + 2;
+		const int32_t pumpX = x + 4;
 		const int32_t pumpHeight = 18;
-		const int32_t pumpY = y + (height - pumpHeight) / 2 - 1;
+		const int32_t pumpY = y + (height - pumpHeight) / 2 - 2;
 
 		// Allocation-free monochrome fuel pump: body, window, base and hose.
 		tft.drawRect(pumpX, pumpY, 8, 13, color);

@@ -1,4 +1,9 @@
 {
+  "1.7.3": [
+    "Improved Pocket fuel-level updates to reduce flicker and extracted reusable fuel, ABS and TCS dashboard icons.",
+    "Kept Pocket ABS and TCS indicators stable while distinguishing inactive and active telemetry states.",
+    "Refined fuel-pump icon placement in the GT3 and Mono themes."
+  ],
   "1.7.2": [
     "Added an idle-screen Touch Setup flow that detects and saves 0, 90, 180 or 270 degree touch orientation corrections.",
     "Added double-tap entry, verification and dual-orientation Cancel handling so accidental or incorrect calibration remains recoverable.",
