@@ -215,15 +215,15 @@
 				if (y <= 204) tft.drawFastHLine(192, y, 13, rowColor);
 				if (y >= 205) tft.drawFastHLine(189, y, 19, rowColor);
 				// Three-pixel diagonal nozzle flowing into a slim vertical hose.
-				if (y >= 184 && y <= 188)
+				if (y >= 185 && y <= 189)
 				{
-					const int nozzleX = 205 + (y - 184);
-					tft.drawFastHLine(nozzleX + (y == 184 ? 1 : 0), y,
-						y == 184 ? 2 : 3, rowColor);
+					const int nozzleX = 205 + (y - 185);
+					tft.drawFastHLine(nozzleX + (y == 185 ? 1 : 0), y,
+						y == 185 ? 2 : 3, rowColor);
 				}
-				if (y >= 189 && y <= 203)
+				if (y >= 190 && y <= 204)
 					tft.drawFastHLine(208, y, 2, rowColor);
-				if (y >= 189 && y <= 196)
+				if (y >= 190 && y <= 197)
 					tft.drawFastHLine(209, y, 3, rowColor);
 			}
 			// Keep the pump window cut out regardless of the displayed level.
