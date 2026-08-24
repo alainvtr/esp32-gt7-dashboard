@@ -274,9 +274,9 @@
 		// Chunky rear-view slipping-car glyph, drawn for this 42 px status cell.
 		// Crisp symmetrical trapezoid roof; the inset trapezoid is the rear window.
 		tft.fillTriangle(284, 181, 294, 181, 279, 189, tcsColor);
-		tft.fillTriangle(294, 181, 299, 189, 279, 189, tcsColor);
+		tft.fillTriangle(295, 181, 300, 189, 279, 189, tcsColor);
 		tft.fillTriangle(285, 183, 293, 183, 282, 188, pale);
-		tft.fillTriangle(293, 183, 296, 188, 282, 188, pale);
+		tft.fillTriangle(294, 183, 297, 188, 282, 188, pale);
 
 		// Solid rear body with two square, background-colour lamps.
 		tft.fillRect(279, 189, 22, 10, tcsColor);
