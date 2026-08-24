@@ -10,9 +10,11 @@
 		static constexpr uint8_t N[7] = {17, 25, 25, 21, 19, 19, 17};
 		static constexpr uint8_t R[7] = {30, 17, 17, 30, 20, 18, 17};
 		static constexpr uint8_t DASH[7] = {0, 0, 0, 14, 0, 0, 0};
+		static constexpr uint8_t SLASH[7] = {1, 2, 2, 4, 8, 8, 16};
 		if (c == 'N') return N[row];
 		if (c == 'R') return R[row];
 		if (c == '-') return DASH[row];
+		if (c == '/') return SLASH[row];
 		return 0;
 	}
 
@@ -79,6 +81,28 @@
 		tft.setTextSize(1.0f);
 		tft.setTextDatum(TL_DATUM);
 		prevData[id] = cacheState;
+	}
+
+	void drawPocketPixelValue(int x, int y, int w, int h,
+		const String &value, const String &id, uint16_t color,
+		uint16_t background, int scale, bool forceUpdate)
+	{
+		if (!forceUpdate && prevData[id] == value) return;
+		tft.fillRect(x, y, w, h, background);
+		const int pitch = 6 * scale;
+		const int textWidth = value.length() * pitch - scale;
+		const int startX = x + (w - textWidth) / 2;
+		const int startY = y + (h - 7 * scale) / 2;
+		for (size_t i = 0; i < value.length(); ++i)
+			for (int row = 0; row < 7; ++row)
+			{
+				const uint8_t bits = pocketGlyphRow(value[i], row);
+				for (int col = 0; col < 5; ++col)
+					if (bits & (1 << (4 - col)))
+						tft.fillRect(startX + i * pitch + col * scale,
+							startY + row * scale, scale, scale, color);
+			}
+		prevData[id] = value;
 	}
 
 	void drawPocketValueBuffered(int x, int y, int w, int h,
@@ -212,22 +236,22 @@
 			for (int y = pumpTop; y <= pumpBottom; ++y)
 			{
 				const uint16_t rowColor = y >= liquidTop ? darkest : light;
-				if (y <= 204) tft.drawFastHLine(192, y, 13, rowColor);
-				if (y >= 205) tft.drawFastHLine(189, y, 19, rowColor);
+				if (y <= 204) tft.drawFastHLine(191, y, 13, rowColor);
+				if (y >= 205) tft.drawFastHLine(188, y, 19, rowColor);
 				// Three-pixel diagonal nozzle flowing into a slim vertical hose.
 				if (y >= 185 && y <= 189)
 				{
-					const int nozzleX = 205 + (y - 185);
+					const int nozzleX = 204 + (y - 185);
 					tft.drawFastHLine(nozzleX + (y == 185 ? 1 : 0), y,
 						y == 185 ? 2 : 3, rowColor);
 				}
 				if (y >= 190 && y <= 204)
-					tft.drawFastHLine(208, y, 2, rowColor);
+					tft.drawFastHLine(207, y, 2, rowColor);
 				if (y >= 190 && y <= 197)
-					tft.drawFastHLine(209, y, 3, rowColor);
+					tft.drawFastHLine(208, y, 3, rowColor);
 			}
 			// Keep the pump window cut out regardless of the displayed level.
-			tft.fillRect(195, 187, 7, 6, pale);
+			tft.fillRect(194, 187, 7, 6, pale);
 			tft.drawString("FUEL", 198, 220, 1);
 		}
 
@@ -272,7 +296,7 @@
 				195 - absTextHeight / 2, 1);
 			tft.setTextDatum(MC_DATUM);
 			tft.setTextColor(darkest, pale);
-			tft.drawString("ABS", 244, 221, 1);
+			tft.drawString("ABS", 244, 220, 1);
 		}
 
 		if (tcsChanged)
@@ -310,7 +334,7 @@
 						x, y, tcsColor);
 			}
 		}
-		tft.drawString("TCS", 290, 221, 1);
+		tft.drawString("TCS", 290, 220, 1);
 		}
 
 		// Three equal status columns.
@@ -455,10 +479,10 @@
 			tft.setTextDatum(TL_DATUM);
 		}
 
-		drawPocketValue(43, 12, 90, 22, state.tyrePressureRearLeft,
-			"pocketLap", darkest, pale, 2, 1.35f, 1.18f, forceUpdate);
-		drawPocketValue(215, 13, 92, 20, state.tyrePressureFrontRight,
-			"pocketPos", darkest, pale, 2, 1.35f, 1.18f, forceUpdate);
+		drawPocketPixelValue(43, 12, 90, 22, state.tyrePressureRearLeft,
+			"pocketLap", darkest, pale, 2, forceUpdate);
+		drawPocketPixelValue(215, 13, 92, 20, state.tyrePressureFrontRight,
+			"pocketPos", darkest, pale, 2, forceUpdate);
 		drawPocketGearSpeed(state, forceUpdate);
 		drawPocketValue(210, 59, 97, 24, state.bestLapTime,
 			"pocketBest", darkest, pale, 1, 1.65f, 1.50f, forceUpdate);
