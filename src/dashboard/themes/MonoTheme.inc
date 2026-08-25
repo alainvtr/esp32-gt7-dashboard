@@ -312,11 +312,10 @@
 		prevData[id] = cacheState;
 	}
 
-	void drawMonoFuelGauge(const String &fuelValue, bool forceUpdate)
+	void drawMonoFuelGauge(int fuelProgressPercent, bool fuelValueValid, bool forceUpdate)
 	{
 		static constexpr int SEGMENTS = 10;
-		const bool valid = fuelValue != "--" && fuelValue.length() > 0;
-		const int percent = valid ? constrain(fuelValue.toInt(), 0, 100) : 100;
+		const int percent = fuelValueValid ? constrain(fuelProgressPercent, 0, 100) : 100;
 		const int active = constrain((percent * SEGMENTS + 99) / 100, 0, SEGMENTS);
 		const String cacheState = String(active);
 		if (!forceUpdate && prevData["monoFuelGauge"] == cacheState) return;
@@ -340,6 +339,11 @@
 		const uint16_t white = tft.color565(235, 235, 231);
 		const uint16_t muted = tft.color565(154, 156, 158);
 		const uint16_t frame = tft.color565(76, 78, 80);
+		static constexpr int32_t fuelLabelX = 220;
+		static constexpr int32_t remLabelX = 274;
+		const int32_t fuelValueX = fuelLabelX +
+			static_cast<int32_t>(state.fuelLabel.length()) * 6 + 2;
+		const int32_t remValueX = remLabelX + 3 * 6 + 2;
 
 		if (forceUpdate)
 		{
@@ -373,8 +377,8 @@
 			tft.setTextDatum(ML_DATUM);
 			tft.drawString("ABS", 6, 203, 1);
 			tft.drawString("TCS", 51, 203, 1);
-			tft.drawString("FUEL", 220, 203, 1);
-			tft.drawString("REM", 273, 203, 1);
+			tft.drawString(state.fuelLabel, fuelLabelX, 203, 1);
+			tft.drawString("REM", remLabelX, 203, 1);
 			tft.setTextDatum(TL_DATUM);
 		}
 
@@ -406,10 +410,10 @@
 		drawMonoValue(223, 158, 94, 25, state.lastLapTime,
 			"monoLast", white, 1, MC_DATUM, forceUpdate, 1.52f, 1.38f);
 
-		drawMonoFuelGauge(state.brakeBias, forceUpdate);
-		drawMonoValue(244, 196, 25, 15, state.brakeBias,
+		drawMonoFuelGauge(state.fuelProgressPercent, state.fuelValueValid, forceUpdate);
+		drawMonoValue(fuelValueX, 196, 23, 15, state.fuelDisplayValue,
 			"monoFuelValue", white, 1, ML_DATUM, forceUpdate);
-		drawMonoValue(291, 196, 27, 15, state.tyrePressureFrontLeft,
+		drawMonoValue(remValueX, 196, 24, 15, state.tyrePressureFrontLeft,
 			"monoRem", white, 1, ML_DATUM, forceUpdate);
 		drawMonoStatusDot(35, 203, isActiveValue(state.absActive),
 			"monoAbs", white, forceUpdate);
