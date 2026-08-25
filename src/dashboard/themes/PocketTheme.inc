@@ -205,8 +205,11 @@
 	{
 		const bool absOn = isActiveValue(state.absActive);
 		const bool tcsOn = isActiveValue(state.tcActive);
+		const String fuelRenderState = state.fuelDisplayValue + ":" +
+			String(state.fuelProgressPercent) + ":" + state.fuelLabel + ":" +
+			String(state.fuelValueValid ? 1 : 0);
 		const bool fuelChanged = forceUpdate ||
-			prevData["pocketFuel"] != state.brakeBias;
+			prevData["pocketFuel"] != fuelRenderState;
 		const bool absChanged = forceUpdate ||
 			prevData["pocketAbs"] != state.absActive;
 		const bool tcsChanged = forceUpdate ||
@@ -218,7 +221,7 @@
 		const uint16_t light = tft.color565(132, 146, 80);
 		tft.setTextColor(darkest, pale);
 		tft.setTextDatum(MC_DATUM);
-		const bool validFuel = state.brakeBias != "--" && state.brakeBias.length();
+		const bool validFuel = state.fuelValueValid;
 		if (fuelChanged)
 		{
 			if (forceUpdate)
@@ -226,17 +229,19 @@
 			else
 				tft.fillRect(176, 165, 44, 18, pale);
 			tft.setTextSize(1.0f);
-			tft.drawString(validFuel ? state.brakeBias + "%" : "--", 198, 174, 2);
+			String displayedFuel = state.fuelDisplayValue;
+			if (validFuel && !state.fuelIsEV) displayedFuel += "%";
+			tft.drawString(validFuel ? displayedFuel : "--", 198, 174, 2);
 			// The pump doubles as a coarse pixel fuel gauge. Its color boundary
 			// always advances by complete horizontal rows: dark fuel below,
 			// lighter empty space above. Missing telemetry is treated as full.
 			const int fuelPercent = validFuel
-				? constrain(state.brakeBias.toInt(), 0, 100)
+				? constrain(state.fuelProgressPercent, 0, 100)
 				: 100;
 			drawDashboardFuelPumpIcon(191, 184, fuelPercent,
 				darkest, light, pale);
 			if (forceUpdate)
-				tft.drawString("FUEL", 198, 220, 1);
+				tft.drawString(state.fuelLabel, 198, 220, 1);
 		}
 
 		// Match the RPM bar: inactive is pale, active is the solid dark tone.
@@ -277,7 +282,7 @@
 		tft.setTextDatum(TL_DATUM);
 		// Dynamic clearing must never leave the outer folded corners incomplete.
 		drawPocketPixelFrame(10, 162, 300, 69, dark);
-		prevData["pocketFuel"] = state.brakeBias;
+		prevData["pocketFuel"] = fuelRenderState;
 		prevData["pocketAbs"] = state.absActive;
 		prevData["pocketTcs"] = state.tcActive;
 	}

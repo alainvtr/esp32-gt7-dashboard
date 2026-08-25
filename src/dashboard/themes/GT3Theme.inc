@@ -43,7 +43,7 @@
 					DashboardLayout::LAP_LABEL_Y[i], DashboardLayout::SIDE_WIDTH, 18,
 					&fonts::FreeSans9pt7b, labelColor, ML_DATUM, 0.72f, 0.74f);
 
-			const char *bottomLabels[] = {"FUEL", "LEFT", "LAP", "POS", "ABS", "TCS"};
+			const char *bottomLabels[] = {state.fuelLabel.c_str(), "LEFT", "LAP", "POS", "ABS", "TCS"};
 			for (int i = 0; i < 6; ++i)
 			{
 				if (i > 0) tft.drawFastVLine(DashboardLayout::BOTTOM_X[i],
@@ -106,7 +106,9 @@
 		String lapCounterDisplay = state.tyrePressureRearLeft;
 		lapCounterDisplay.replace("/", " / ");
 		drawFuelIndicator(DashboardLayout::BOTTOM_X[0] + 4, DashboardLayout::BOTTOM_VALUE_Y,
-			DashboardLayout::BOTTOM_W[0] - 8, DashboardLayout::BOTTOM_VALUE_H, state.brakeBias, forceUpdate);
+			DashboardLayout::BOTTOM_W[0] - 8, DashboardLayout::BOTTOM_VALUE_H,
+			state.fuelDisplayValue, state.fuelProgressPercent,
+			state.fuelValueValid, state.fuelIsEV, forceUpdate);
 		drawDashboardValue(DashboardLayout::BOTTOM_X[1] + 2, DashboardLayout::BOTTOM_VALUE_Y,
 			DashboardLayout::BOTTOM_W[1] - 4, DashboardLayout::BOTTOM_VALUE_H,
 			state.tyrePressureFrontLeft, "gt3Left", leftColor, &fonts::FreeSans12pt7b,
@@ -389,17 +391,19 @@
 	}
 
 	void drawFuelIndicator(int32_t x, int32_t y, int32_t width, int32_t height,
-		const String &value, bool forceUpdate)
+		const String &value, int progressPercent, bool valueValid, bool isEV,
+		bool forceUpdate)
 	{
 		const String id = "gt3Fuel";
 		uint16_t color = TFT_WHITE;
-		if (value != "--")
+		if (valueValid && !isEV)
 		{
-			const float fuelPercent = value.toFloat();
+			const float fuelPercent = progressPercent;
 			if (fuelPercent <= 9.0f) color = TFT_RED;
 			else if (fuelPercent <= 24.0f) color = TFT_YELLOW;
 		}
-		const String state = value + ":" + String(color);
+		const String state = value + ":" + String(progressPercent) + ":" +
+			String(valueValid ? 1 : 0) + ":" + String(isEV ? 1 : 0) + ":" + String(color);
 		if (!forceUpdate && prevData[id] == state) return;
 
 		tft.fillRect(x, y, width, height, TFT_BLACK);

@@ -332,7 +332,7 @@
 		const uint16_t blue = tft.color565(30, 155, 255);
 		const uint16_t red = tft.color565(255, 70, 52);
 		const String layoutState = String(state.rpmRedLineSetting) + ":" +
-			String(state.rpmAlertRangeValid ? 1 : 0);
+			String(state.rpmAlertRangeValid ? 1 : 0) + ":" + state.fuelLabel;
 		const bool redraw = forceUpdate || prevData["radarLayoutState"] != layoutState;
 
 		if (redraw)
@@ -375,7 +375,7 @@
 			tft.drawString("POS", 8, 69, 1);
 			tft.drawString("BEST", 8, 113, 1);
 			tft.drawString("LAST", 8, 157, 1);
-			tft.drawString("FUEL", 260, 25, 1);
+			tft.drawString(state.fuelLabel, 260, 25, 1);
 			tft.drawString("REM", 260, 69, 1);
 			tft.drawString("CURRENT", 258, 113, 1);
 			tft.drawString("PEDALS", 258, 155, 1);
@@ -396,7 +396,7 @@
 			"radarBest", TFT_WHITE, 1, ML_DATUM, redraw);
 		drawRadarValue(7, 168, 56, 24, state.lastLapTime,
 			"radarLast", TFT_WHITE, 1, ML_DATUM, redraw);
-		drawRadarValue(257, 36, 57, 24, state.brakeBias,
+		drawRadarValue(257, 36, 57, 24, state.fuelDisplayValue,
 			"radarFuel", TFT_WHITE, 2, MR_DATUM, redraw, 1.0f, 1.0f);
 		drawRadarValue(257, 80, 57, 24, state.tyrePressureFrontLeft,
 			"radarRem", TFT_WHITE, 2, MR_DATUM, redraw, 1.0f, 1.0f);

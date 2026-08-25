@@ -81,13 +81,18 @@
 		const bool absOn = isActiveValue(state.absActive);
 		const uint16_t tcsColor = tcsOn ? TFT_YELLOW : TFT_DARKGREY;
 		const uint16_t absColor = absOn ? TFT_RED : TFT_DARKGREY;
-		float fuelPercentValue = state.fuelAlertActive.toFloat();
+		float fuelPercentValue = state.fuelProgressPercent;
 
 		// Fuel
 		String fuelStatus;
 		uint16_t fuelStatusColor;
 
-		if (fuelPercentValue > 50.0f)
+		if (!state.fuelValueValid || state.fuelIsEV)
+		{
+			fuelStatus = "--";
+			fuelStatusColor = TFT_DARKGREY;
+		}
+		else if (fuelPercentValue > 50.0f)
 		{
 			fuelStatus = "HI";
 			fuelStatusColor = TFT_CYAN;
@@ -135,7 +140,7 @@
 			tcsOn,
 			TFT_RED,
 			forceUpdate);
-		drawCell(COL[2], ROW[4], state.brakeBias, "brakeBias", "FUEL", "center", TFT_MAGENTA, 4, forceUpdate);
+		drawCell(COL[2], ROW[4], state.fuelDisplayValue, "brakeBias", state.fuelLabel, "center", TFT_MAGENTA, 4, forceUpdate);
 
 		// 剩餘圈數、位置、圈數、低油量警示
 		drawCell(COL[3], ROW[3], state.tyrePressureFrontLeft, "tyrePressureFrontLeft", "REM", "center", TFT_CYAN, 4, forceUpdate);

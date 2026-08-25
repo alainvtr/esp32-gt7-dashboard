@@ -1,6 +1,19 @@
 {
   "versions": [
     {
+      "version": "1.8.0",
+      "notes": [
+        "Added EV detection from GT7 fuel-capacity telemetry across all six dashboard themes.",
+        "Added compact whole-number EV energy display and vehicle-aware FUEL or EV labels.",
+        "Added EV visual energy gauges while keeping remaining-lap estimates disabled for electric vehicles.",
+        "Separated EV classification from energy-value validation to prevent transient telemetry from showing the wrong powertrain label."
+      ],
+      "manifests": {
+        "ili9341": "versions/1.8.0/manifest-ili9341.json",
+        "st7789": "versions/1.8.0/manifest-st7789.json"
+      }
+    },
+    {
       "version": "1.7.3",
       "notes": [
         "Added the Pocket dashboard theme with a Game Boy-inspired pixel interface optimized for 320 x 240 displays.",

@@ -264,7 +264,7 @@
 			tft.drawString("BEST", 192, 57, 1);
 			tft.drawString("LAST", 192, 92, 1);
 			tft.drawString("CURRENT", 192, 124, 1);
-			tft.drawString("FUEL", 8, 166, 1);
+			tft.drawString(state.fuelLabel, 8, 166, 1);
 			tft.drawString("REM", 86, 166, 1);
 			tft.drawString("LAP", 163, 166, 1);
 			tft.drawString("POS", 243, 166, 1);
@@ -297,7 +297,7 @@
 		drawRetroTextValue(190, 148, 124, 8, state.sessionBestLiveDeltaSeconds,
 			"retroDelta", deltaColor, 1, MR_DATUM, forceUpdate);
 
-		drawRetroTextValue(7, 177, 68, 18, state.brakeBias, "retroFuel", ink,
+		drawRetroTextValue(7, 177, 68, 18, state.fuelDisplayValue, "retroFuel", ink,
 			2, MC_DATUM, forceUpdate);
 		drawRetroTextValue(85, 177, 67, 18, state.tyrePressureFrontLeft, "retroRem", ink,
 			2, MC_DATUM, forceUpdate);

@@ -195,6 +195,11 @@ struct DashboardState
 	String isTCCutNull = "True";
 	String tcTcCut = "0  0";
 	String brakeBias = "0";
+	bool fuelIsEV = false;
+	bool fuelValueValid = false;
+	String fuelLabel = "FUEL";
+	String fuelDisplayValue = "--";
+	int fuelProgressPercent = 100;
 	String brake = "0";
 	String lapInvalidated = "False";
 	float tyreTemperatures[4] = {NAN, NAN, NAN, NAN};
@@ -458,6 +463,11 @@ private:
 		themePreviewData.tyrePressureRearLeft = "3/10";
 		themePreviewData.brakeBias = "80";
 		themePreviewData.fuelAlertActive = "60";
+		themePreviewData.fuelIsEV = false;
+		themePreviewData.fuelValueValid = true;
+		themePreviewData.fuelLabel = "FUEL";
+		themePreviewData.fuelDisplayValue = "80";
+		themePreviewData.fuelProgressPercent = 80;
 		themePreviewData.tcLevel = "68";
 		themePreviewData.tcFilteredLevel = "62";
 		themePreviewData.absLevel = "36";
@@ -816,19 +826,69 @@ public:
 		}
 
 		// 油量百分比
-		float fuelPercent = 0.0f;
-		if (data.fuelCapacity > 0.0f)
+		// Normalize ICE and EV energy into separate display and progress values.
+		// For EVs, fuelLevel is treated as remaining kWh. The fixed 60 kWh
+		// reference is only a visual scale because GT7 does not expose capacity.
+		static constexpr float EV_CAPACITY_THRESHOLD = 0.1f;
+		static constexpr float EV_VISUAL_FULL_KWH = 60.0f;
+		static constexpr float MAX_REASONABLE_EV_KWH = 500.0f;
+		const bool validCapacity = isfinite(data.fuelCapacity) &&
+			data.fuelCapacity >= 0.0f;
+		const bool validFuelLevel = isfinite(data.fuelLevel) &&
+			data.fuelLevel >= 0.0f && data.fuelLevel < MAX_REASONABLE_EV_KWH;
+		// Powertrain classification comes only from the capacity field (0x48).
+		// Keep it independent from fuelLevel so a transient/invalid energy value
+		// cannot make an EV label flicker back to FUEL.
+		const bool detectedEV = validCapacity &&
+			data.fuelCapacity < EV_CAPACITY_THRESHOLD;
+		const bool validEvFuel = detectedEV && validFuelLevel &&
+			data.fuelLevel > 0.0f;
+		const bool validIceFuel = validCapacity && validFuelLevel &&
+			data.fuelCapacity >= EV_CAPACITY_THRESHOLD;
+		const bool nextFuelValueValid = validEvFuel || validIceFuel;
+		const String nextFuelLabel = detectedEV ? "EV" : "FUEL";
+
+		if (fuelIsEV != detectedEV || fuelValueValid != nextFuelValueValid)
 		{
-			fuelPercent = constrain(
+			derivedMetrics.fuel.reset();
+			if (fuelLabel != nextFuelLabel)
+				forceUpdate = true;
+		}
+
+		fuelIsEV = detectedEV;
+		fuelValueValid = nextFuelValueValid;
+		fuelLabel = nextFuelLabel;
+
+		if (validEvFuel)
+		{
+			// GT7 updates EV energy in coarse steps. A whole-number display keeps
+			// every theme compact and avoids implying unavailable precision.
+			fuelDisplayValue = String(data.fuelLevel, 0);
+			fuelProgressPercent = constrain(
+				static_cast<int>(lroundf(
+					data.fuelLevel / EV_VISUAL_FULL_KWH * 100.0f)),
+				0,
+				100);
+		}
+		else if (validIceFuel)
+		{
+			const float fuelPercent = constrain(
 				(data.fuelLevel / data.fuelCapacity) * 100.0f,
 				0.0f,
 				100.0f);
+			fuelDisplayValue = String(fuelPercent, 0);
+			fuelProgressPercent = constrain(
+				static_cast<int>(lroundf(fuelPercent)), 0, 100);
+		}
+		else
+		{
+			fuelDisplayValue = "--";
+			fuelProgressPercent = 100;
 		}
 
-		brakeBias = data.fuelCapacity > 0.0f
-			? String(fuelPercent, 0)
-			: "--";
-		fuelAlertActive = String(fuelPercent, 1);
+		// Keep legacy fields synchronized for existing protocol helpers.
+		brakeBias = fuelDisplayValue;
+		fuelAlertActive = String(fuelProgressPercent);
 
 		for (int tyreIndex = 0; tyreIndex < 4; tyreIndex++)
 		{
@@ -837,14 +897,14 @@ public:
 
 		// 由獨立 library 估算剩餘油量圈數。
 		// 注意：GT7FuelEstimator 接收的是公升，不是百分比。
-		derivedMetrics.fuel.update(
-			data.fuelLevel,
-			currentLap);
+		if (validIceFuel)
+			derivedMetrics.fuel.update(data.fuelLevel, currentLap);
 
-		const float estimatedFuelLaps =
-			derivedMetrics.fuel.remainingLaps();
+		const float estimatedFuelLaps = validIceFuel
+			? derivedMetrics.fuel.remainingLaps()
+			: -1.0f;
 
-		if (estimatedFuelLaps >= 0.0f)
+		if (!fuelIsEV && estimatedFuelLaps >= 0.0f)
 		{
 			tyrePressureFrontLeft = String(estimatedFuelLaps, 1);
 		}
@@ -975,6 +1035,13 @@ public:
 		// 20：剩餘油量百分比
 		brakeBias =
 			FlowSerialReadStringUntil(';');
+		fuelIsEV = false;
+		fuelValueValid = brakeBias != "--" && brakeBias.length() > 0;
+		fuelLabel = "FUEL";
+		fuelDisplayValue = brakeBias;
+		fuelProgressPercent = fuelValueValid
+			? constrain(static_cast<int>(lroundf(fuelAlertActive.toFloat())), 0, 100)
+			: 100;
 
 		// 21：保留欄位，固定為 0
 		brake =

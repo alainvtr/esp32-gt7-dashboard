@@ -47,6 +47,7 @@ Simply connect your ESP32 to the same Wi-Fi network as your PS5 and enjoy real-t
 - 🏁 Current, Last and Best lap times
 - ⏱ Live Delta
 - ⛽ Fuel consumption and remaining fuel estimation
+- 🔋 Automatic EV detection with compact remaining-energy display
 - 🔄 Estimated laps remaining
 - 🚦 RPM bar with configurable shift lights
 - 🚨 ABS indicator
