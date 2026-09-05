@@ -1,6 +1,16 @@
 {
   "versions": [
     {
+      "version": "1.9.0",
+      "notes": [
+        "Added the Endurance dashboard theme, optimized for at-a-glance race telemetry with shift lights, a central gear display, lap timing, tyre temperatures, pedal inputs and fuel strategy."
+      ],
+      "manifests": {
+        "ili9341": "versions/1.9.0/manifest-ili9341.json",
+        "st7789": "versions/1.9.0/manifest-st7789.json"
+      }
+    },
+    {
       "version": "1.8.0",
       "notes": [
         "Added EV detection from GT7 fuel-capacity telemetry across all six dashboard themes.",
@@ -107,16 +117,6 @@
       "manifests": {
         "ili9341": "versions/1.2.5/manifest-ili9341.json",
         "st7789": "versions/1.2.5/manifest-st7789.json"
-      }
-    },
-    {
-      "version": "1.2.4",
-      "notes": [
-        "Added ST7789 display support."
-      ],
-      "manifests": {
-        "ili9341": "versions/1.2.4/manifest-ili9341.json",
-        "st7789": "versions/1.2.4/manifest-st7789.json"
       }
     }
   ]
