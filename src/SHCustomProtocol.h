@@ -1,4 +1,4 @@
-
+// 21/09/2026 14:54 - Selection du profil LGFX via BOARD_ESP32_3248S035 pour supporter la carte ESP32-3248S035R (ST7796 320x480) en plus de la 2432S028.
 #ifndef __SHCUSTOMPROTOCOL_H__
 #define __SHCUSTOMPROTOCOL_H__
 #define LGFX_USE_V1
@@ -6,7 +6,11 @@
 // selezione la configurazione nella cartella lgfx_user
 // #include <LGFX_AUTODETECT.hpp>  // Preparare la classe "LGFX"
 // #include <lgfx_user/LGFX_ESP8266_sample.hpp>
+#if defined(BOARD_ESP32_3248S035)
+#include <lgfx_user/LGFX_ESP32_esp32-3248s035.hpp>
+#else
 #include <lgfx_user/LGFX_ESP32_esp32-2432s028.hpp>
+#endif
 //  dashboard + free deck grafica
 #include <Arduino.h>
 #include <Preferences.h>
