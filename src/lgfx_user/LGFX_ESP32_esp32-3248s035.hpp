@@ -1,4 +1,6 @@
 // 21/09/2026 14:54 - Nouveau profil LovyanGFX pour la carte Sunton ESP32-3248S035R (ST7796 320x480 + tactile resistif XPT2046), ajoute pour pouvoir utiliser cette carte sans modifier les themes.
+// 02/10/2026 16:33 - DASHBOARD_TOUCH_ROTATION_OFFSET passe de 6 a 0 : le tactile etait tourne de 180 degres par rapport a l'affichage sur la carte 3248S035R.
+// 02/10/2026 16:46 - DASHBOARD_TOUCH_ROTATION_OFFSET passe de 0 a 4 : avec 0 le haut/bas du tactile restait inverse (il faut inverser X et Y, rotation 7 dans LovyanGFX).
 #pragma once
 
 #define LGFX_USE_V1
@@ -23,7 +25,7 @@
 // par defaut ILI9341 de la carte 2.8"). Si l'affichage est a l'envers : essayer 1 au lieu de 3.
 // Si le tactile est inverse/miroir : ajuster DASHBOARD_TOUCH_ROTATION_OFFSET (0 a 7).
 static constexpr uint8_t DASHBOARD_DISPLAY_ROTATION = 3;
-static constexpr uint8_t DASHBOARD_TOUCH_ROTATION_OFFSET = 6;
+static constexpr uint8_t DASHBOARD_TOUCH_ROTATION_OFFSET = 4;
 
 class LGFX : public lgfx::LGFX_Device{
   lgfx::Panel_ST7796  _panel_instance;

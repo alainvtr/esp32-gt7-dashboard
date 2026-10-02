@@ -1,6 +1,13 @@
+// 02/10/2026 20:46 - Ajout du mode demo (flag DASHBOARD_DEMO_MODE) : etat du dashboard anime sans telemetrie GT7 + cadre de test des limites de l'ecran.
 // 21/09/2026 14:54 - Selection du profil LGFX via BOARD_ESP32_3248S035 pour supporter la carte ESP32-3248S035R (ST7796 320x480) en plus de la 2432S028.
 #ifndef __SHCUSTOMPROTOCOL_H__
 #define __SHCUSTOMPROTOCOL_H__
+
+// Mode demo : 0 par defaut, passe a 1 par l'environnement esp32-3248s035-demo (platformio.ini).
+#ifndef DASHBOARD_DEMO_MODE
+#define DASHBOARD_DEMO_MODE 0
+#endif
+
 #define LGFX_USE_V1
 #include <LovyanGFX.hpp>
 // selezione la configurazione nella cartella lgfx_user
@@ -1187,6 +1194,114 @@ public:
 
 #endif
 
+#if DASHBOARD_DEMO_MODE
+	// Mode demo : anime l'etat du dashboard sans telemetrie GT7 (cycle de 12 s :
+	// 6 rapports, regime qui monte, pedales, delta, carburant, temperatures pneus).
+	void updateDemoState()
+	{
+		static uint32_t lastDemoUpdate = 0;
+		const uint32_t now = millis();
+		if (lastDemoUpdate != 0 && now - lastDemoUpdate < 33)
+		{
+			return; // ~30 images/s, proche du rythme de la telemetrie reelle
+		}
+		const bool firstUpdate = (lastDemoUpdate == 0);
+		lastDemoUpdate = now;
+
+		const float cycle = (now % 12000) / 12000.0f;
+		const float gearPos = cycle * 6.0f;
+		const int gearIndex = static_cast<int>(gearPos) + 1; // 1..6
+		const float gearPhase = gearPos - static_cast<float>(gearIndex - 1); // 0..1
+
+		prev_rpmPercent = rpmPercent;
+		rpmPercent = static_cast<int>(45.0f + gearPhase * 53.0f);
+		rpmRedLineSetting = 78;
+		rpmAlertRangeValid = true;
+		engineRpm = rpmPercent * 80;
+		revLimitAlertActive = rpmPercent >= 97;
+
+		gear = String(gearIndex);
+		speed = String(static_cast<int>(40.0f + (gearIndex - 1) * 38.0f + gearPhase * 38.0f));
+
+		// Pedales : l'interface les lit dans absLevel/absFilteredLevel (frein)
+		// et tcLevel/tcFilteredLevel (accelerateur).
+		const bool braking = gearPhase >= 0.9f;
+		const int throttle = braking ? 15 : 100;
+		const int brakeInput = braking ? 80 : 0;
+		tcLevel = String(throttle);
+		tcFilteredLevel = String(throttle * 9 / 10);
+		absLevel = String(brakeInput);
+		absFilteredLevel = String(brakeInput * 9 / 10);
+		absActive = braking ? "1" : "0";
+		tcActive = (gearPhase < 0.1f) ? "1" : "0";
+
+		char buffer[16];
+		const uint32_t lapMs = now % 90000;
+		snprintf(buffer, sizeof(buffer), "%02u:%02u.%03u",
+			static_cast<unsigned>(lapMs / 60000),
+			static_cast<unsigned>((lapMs / 1000) % 60),
+			static_cast<unsigned>(lapMs % 1000));
+		currentLapTime = String(buffer);
+		lastLapTime = "01:25.104";
+		bestLapTime = "01:24.382";
+		lapInvalidated = ((now / 1000) % 20 < 3) ? "True" : "False";
+
+		snprintf(buffer, sizeof(buffer), "%+.3f", 0.8f * sinf(now / 3000.0f));
+		sessionBestLiveDeltaSeconds = String(buffer);
+		sessionBestLiveDeltaProgressSeconds = "0.00";
+
+		// Champs historiques du protocole : tyrePressureRearLeft = LAP,
+		// tyrePressureFrontRight = POS, tyrePressureFrontLeft = REM.
+		tyrePressureRearLeft = "3/10";
+		tyrePressureFrontRight = "4";
+		tyrePressureFrontLeft = "12";
+		brakeBias = "80";
+
+		const int fuelPercent = 100 - static_cast<int>((now / 1000) % 100);
+		fuelIsEV = false;
+		fuelValueValid = true;
+		fuelLabel = "FUEL";
+		fuelDisplayValue = String(fuelPercent);
+		fuelProgressPercent = fuelPercent;
+		fuelAlertActive = (fuelPercent < 15) ? "True" : "False";
+
+		for (int i = 0; i < 4; ++i)
+		{
+			tyreTemperatures[i] = 85.0f + 15.0f * sinf(now / 2500.0f + i);
+		}
+
+		gameRunning = "True";
+
+		// Simule une session GT7 en cours : pas de ecran d'attente, pas de mise en veille.
+		previousGameRunning = true;
+		gameStoppedTimerStarted = false;
+		if (firstUpdate)
+		{
+			screenSleeping = false;
+			screenOffByUser = false;
+			forceUpdate = true;
+		}
+	}
+
+	// Cadre de test pour reperer la surface reellement affichable :
+	//  - rouge  : limites du panneau (tft.width() x tft.height()) ;
+	//  - vert   : bords droit et bas de la zone 320x240 utilisee par les themes ;
+	//  - jaune  : reperes aux 4 coins du panneau.
+	// Redessine apres chaque image pour rester au-dessus du theme.
+	void drawDemoFrame()
+	{
+		const int w = tft.width();
+		const int h = tft.height();
+		tft.drawRect(0, 0, w, h, TFT_RED);
+		tft.drawFastVLine(SCREEN_WIDTH - 1, 0, SCREEN_HEIGHT, TFT_GREEN);
+		tft.drawFastHLine(0, SCREEN_HEIGHT - 1, SCREEN_WIDTH, TFT_GREEN);
+		tft.fillRect(0, 0, 6, 6, TFT_YELLOW);
+		tft.fillRect(w - 6, 0, 6, 6, TFT_YELLOW);
+		tft.fillRect(0, h - 6, 6, 6, TFT_YELLOW);
+		tft.fillRect(w - 6, h - 6, 6, 6, TFT_YELLOW);
+	}
+#endif
+
 	void loop()
 	{
 #if INCLUDE_GT7_WIFI
@@ -1199,8 +1314,12 @@ public:
 			gt7Telem.sendHeartbeat();
 		}
 
+#if DASHBOARD_DEMO_MODE
+		updateDemoState();
+#else
 		readGT7Wifi();
 		updateGT7GameState();
+#endif
 #endif
 
 		/*
@@ -1285,6 +1404,10 @@ public:
 		{
 			drawPage2();
 		}
+
+#if DASHBOARD_DEMO_MODE
+		drawDemoFrame();
+#endif
 
 		forceUpdate = false;
 	}
