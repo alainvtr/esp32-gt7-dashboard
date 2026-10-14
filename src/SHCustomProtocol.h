@@ -1,5 +1,11 @@
-// 02/10/2026 20:46 - Ajout du mode demo (flag DASHBOARD_DEMO_MODE) : etat du dashboard anime sans telemetrie GT7 + cadre de test des limites de l'ecran.
 // 21/09/2026 14:54 - Selection du profil LGFX via BOARD_ESP32_3248S035 pour supporter la carte ESP32-3248S035R (ST7796 320x480) en plus de la 2432S028.
+// 02/10/2026 20:46 - Ajout du mode demo (flag DASHBOARD_DEMO_MODE) : etat du dashboard anime sans telemetrie GT7 + cadre de test des limites de l'ecran.
+// 06/10/2026 16:37 - Historique des derniers tours pour le bandeau du thème Radar (8 = LAP_STRIP_COUNT)
+// 06/10/2026 23:09 - Rayons des pneus et temps restant dans DashboardState, demo: temperatures 50-90 et suppression du cadre de test
+// 07/10/2026 01:02 - Historique glissant des 8 derniers tours (+ detection d'arret au stand) pour le bandeau du theme Radar
+// 07/10/2026 14:06 - Suivi des tours terminés et détection du passage au pit (GT7 n'envoie aucun drapeau pit)
+// 08/10/2026 12:16 - Rapport 0 ou 15: point mort (N) ou marche arriere (R), distingues par le drapeau InGear (a verifier en jeu)
+//                    PIT Motif recherché: vitesse stabilisée (limiteur) -> arrêt moteur au ralenti -> vitesse stabilisée.
 #ifndef __SHCUSTOMPROTOCOL_H__
 #define __SHCUSTOMPROTOCOL_H__
 
@@ -216,7 +222,40 @@ struct DashboardState
 	String brake = "0";
 	String lapInvalidated = "False";
 	float tyreTemperatures[4] = {NAN, NAN, NAN, NAN};
+	float tyreRadiusMm[4] = {NAN, NAN, NAN, NAN};
+	String remainingTime = "--:--";	
 	String gameRunning = "False";
+	// Historique glissant des derniers tours (affiche par le bandeau du theme Radar).
+	static constexpr int LAP_HISTORY_SIZE = 8;
+	int lapHistoryCount = 0;
+	int lapHistoryNumber[LAP_HISTORY_SIZE] = {};
+	int32_t lapHistoryMs[LAP_HISTORY_SIZE] = {};
+	bool lapHistoryPit[LAP_HISTORY_SIZE] = {};
+	int32_t bestLapMs = -1;
+
+	void clearLapHistory()
+	{
+		lapHistoryCount = 0;
+	}
+
+	// Ajoute un tour a droite ; quand la fenetre est pleine, le plus ancien sort.
+	void pushLapHistory(int lapNumber, int32_t lapMs, bool pit)
+	{
+		if (lapHistoryCount == LAP_HISTORY_SIZE)
+		{
+			for (int i = 1; i < LAP_HISTORY_SIZE; ++i)
+			{
+				lapHistoryNumber[i - 1] = lapHistoryNumber[i];
+				lapHistoryMs[i - 1] = lapHistoryMs[i];
+				lapHistoryPit[i - 1] = lapHistoryPit[i];
+			}
+			--lapHistoryCount;
+		}
+		lapHistoryNumber[lapHistoryCount] = lapNumber;
+		lapHistoryMs[lapHistoryCount] = lapMs;
+		lapHistoryPit[lapHistoryCount] = pit;
+		++lapHistoryCount;
+	}	
 };
 
 std::map<String, String> prevData;
@@ -735,6 +774,172 @@ public:
 	}
 
 #if INCLUDE_GT7_WIFI
+
+#ifndef DASHBOARD_PIT_DEBUG
+#define DASHBOARD_PIT_DEBUG 0	// 1 = trace les changements de phase sur le port série
+#endif
+	static constexpr float LAP_PIT_STABLE_BAND_KMH = 2.0f;	// tolérance pour dire "vitesse stable"
+	static constexpr uint32_t LAP_PIT_STABLE_MS = 800;		// durée minimale des phases 1 et 3
+	static constexpr float LAP_PIT_MIN_KMH = 58.0f;			// plage de vitesse acceptée pour les phases 1 et 3
+	static constexpr float LAP_PIT_MAX_KMH = 61.0f;
+	static constexpr float LAP_PIT_STOPPED_KMH = 1.0f;		// en dessous: arrêt (phase 2)
+	static constexpr float LAP_PIT_IDLE_RPM_MIN = 500.0f;	// plage du ralenti à l'arrêt (800 observé), dépend de la voiture
+	static constexpr float LAP_PIT_IDLE_RPM_MAX = 1000.0f;	
+	static constexpr uint32_t LAP_PIT_STOP_MS = 1500;		// durée minimale de l'arrêt
+	static constexpr uint32_t LAP_PIT_APPROACH_TIMEOUT_MS = 10000;	// délai max entre phase 1 et arrêt
+	static constexpr uint32_t LAP_PIT_LEAVE_TIMEOUT_MS = 15000;		// délai max entre arrêt et phase 3
+
+
+	enum PitPhase : uint8_t { PIT_IDLE, PIT_APPROACH, PIT_STOPPED, PIT_LEAVING, PIT_DONE };
+
+	struct LapTracker
+	{
+		int previousLapCount = 0;
+		bool pitSeen = false;			// pit confirmé pendant le tour en cours
+		PitPhase pitPhase = PIT_IDLE;
+		int pitEntryLap = 0;			// tour pendant lequel la phase 1 a commencé
+		float stableRefKmh = 0.0f;
+		uint32_t stableSince = 0;
+		uint32_t phaseSince = 0;
+		uint32_t idleSince = 0;			// début de la période de ralenti en cours (0 = aucune)
+		uint32_t longestIdleMs = 0;		// plus longue période de ralenti pendant cet arrêt
+	} lapTracker;
+
+	void setPitPhase(PitPhase phase, float speedKmh, float rpm)
+	{
+		lapTracker.pitPhase = phase;
+#if DASHBOARD_PIT_DEBUG
+		Serial.printf("[PIT] phase=%d vitesse=%.0f km/h rpm=%.0f tour=%d\n",
+			(int)phase, speedKmh, rpm, lapTracker.previousLapCount);
+#else
+		(void)speedKmh;
+		(void)rpm;
+#endif
+	}
+
+	// Marque le tour d'entrée au pit: tour en cours, ou tour déjà affiché dans l'historique.
+	void markPitLap(int lap, int currentLapCount)
+	{
+		if (lap >= currentLapCount)
+		{
+			lapTracker.pitSeen = true;
+			return;
+		}
+		for (int i = 0; i < lapHistoryCount; ++i)
+			if (lapHistoryNumber[i] == lap)
+				lapHistoryPit[i] = true;
+	}
+
+	void trackPitStop(int lapCount, float speedKmh, float rpm, uint32_t now)
+	{
+		LapTracker &t = lapTracker;
+		if (fabsf(speedKmh - t.stableRefKmh) > LAP_PIT_STABLE_BAND_KMH)
+		{
+			t.stableRefKmh = speedKmh;
+			t.stableSince = now;
+		}
+		const bool stable = now - t.stableSince >= LAP_PIT_STABLE_MS &&
+			speedKmh >= LAP_PIT_MIN_KMH && speedKmh <= LAP_PIT_MAX_KMH;
+
+		switch (t.pitPhase)
+		{
+		case PIT_IDLE:		// phase 1: vitesse stabilisée
+			if (stable)
+			{
+				t.pitEntryLap = lapCount;
+				t.phaseSince = now;
+				setPitPhase(PIT_APPROACH, speedKmh, rpm);
+			}
+			break;
+		case PIT_APPROACH:	// attente de l'arrêt
+			if (stable)
+				t.phaseSince = now;	// dernier instant stable
+			if (speedKmh < LAP_PIT_STOPPED_KMH)
+			{
+				t.idleSince = 0;
+				t.longestIdleMs = 0;
+				setPitPhase(PIT_STOPPED, speedKmh, rpm);
+			}
+			else if (now - t.phaseSince > LAP_PIT_APPROACH_TIMEOUT_MS)
+				setPitPhase(PIT_IDLE, speedKmh, rpm);
+			break;
+		case PIT_STOPPED:	// phase 2: arrêt, moteur au ralenti
+			if (speedKmh < LAP_PIT_STOPPED_KMH)
+			{
+				if (rpm >= LAP_PIT_IDLE_RPM_MIN && rpm <= LAP_PIT_IDLE_RPM_MAX)
+				{
+					if (t.idleSince == 0)
+						t.idleSince = now;
+					const uint32_t idleMs = now - t.idleSince;
+					if (idleMs > t.longestIdleMs)
+						t.longestIdleMs = idleMs;
+				}
+				else
+					t.idleSince = 0;	// régime hors ralenti: on recompte
+			}
+			else
+			{
+				// La voiture repart: l'arrêt n'est valide que s'il y a eu assez de ralenti continu.
+				if (t.longestIdleMs >= LAP_PIT_STOP_MS)
+				{
+					t.phaseSince = now;
+					setPitPhase(PIT_LEAVING, speedKmh, rpm);
+				}
+				else
+					setPitPhase(PIT_IDLE, speedKmh, rpm);
+			}
+			break;
+		case PIT_LEAVING:	// phase 3: vitesse de nouveau stabilisée
+			if (stable)
+			{
+				markPitLap(t.pitEntryLap, lapCount);
+				setPitPhase(PIT_DONE, speedKmh, rpm);
+			}
+			else if (now - t.phaseSince > LAP_PIT_LEAVE_TIMEOUT_MS)
+				setPitPhase(PIT_IDLE, speedKmh, rpm);
+			break;
+		case PIT_DONE:		// attend la fin de la vitesse stable avant de réarmer
+			if (!stable)
+				setPitPhase(PIT_IDLE, speedKmh, rpm);
+			break;
+		}
+	}
+
+	void updateLapHistory(int lapCount, int32_t lastLapMs, int32_t bestLapMsValue,
+		float speedMs, float rpm, uint16_t flags)
+	{
+		const uint32_t now = millis();
+		bestLapMs = bestLapMsValue > 0 ? bestLapMsValue : -1;
+
+		// Le compteur de tours recule: nouvelle course, on repart de zéro.
+		if (lapCount < lapTracker.previousLapCount)
+		{
+			clearLapHistory();
+			lapTracker = LapTracker();
+		}
+
+		// Fin de tour: lapCount augmente (le faux passage 0 -> 1 du départ est ignoré).
+		if (lapCount > lapTracker.previousLapCount)
+		{
+			if (lapTracker.previousLapCount >= 1 && lastLapMs > 0)
+				pushLapHistory(lapTracker.previousLapCount, lastLapMs, lapTracker.pitSeen);
+			lapTracker.pitSeen = false;
+		}
+		lapTracker.previousLapCount = lapCount;
+
+		// Voiture en piste et jeu non en pause.
+		const bool carActive = (flags & (1U << 0)) != 0 && (flags & (1U << 1)) == 0;
+		if (carActive && lapCount >= 1)
+		{
+			trackPitStop(lapCount, speedMs * 3.6f, rpm, now);
+		}
+		else
+		{
+			lapTracker.pitPhase = PIT_IDLE;
+			lapTracker.stableSince = now;
+		}
+	}
+
 	bool readGT7Wifi()
 	{
 		gt7Packet = gt7Telem.readData();
@@ -769,9 +974,10 @@ public:
 
 		const int currentGear =
 			gt7Telem.getCurrentGearFromByte();
+		const bool gearEngaged = (static_cast<uint16_t>(data.flags) & (1U << 3)) != 0;
 
-		gear = currentGear == 0
-				   ? "N"
+		gear = (currentGear == 0 || currentGear == 15)
+				   ? (gearEngaged ? "R" : "N")
 				   : String(currentGear);
 
 		// RPM Bar
@@ -906,6 +1112,7 @@ public:
 		for (int tyreIndex = 0; tyreIndex < 4; tyreIndex++)
 		{
 			tyreTemperatures[tyreIndex] = data.tyreTemp[tyreIndex];
+			tyreRadiusMm[tyreIndex] = data.tyreRadius[tyreIndex] * 1000.0f;
 		}
 
 		// 由獨立 library 估算剩餘油量圈數。
@@ -949,6 +1156,8 @@ public:
 		// GT7 flags bit 0：車輛目前位於賽道／駕駛畫面中。
 		// 回到選單、離開賽道或載入畫面時會變成 false。
 		gt7CarOnTrack = (flags & (1U << 0)) != 0;
+
+		updateLapHistory(currentLap, data.lastLaptime, data.bestLaptime, data.speed, data.EngineRPM, flags);
 
 		const bool tcsIsActive = (flags & (1U << 11)) != 0;
 
@@ -1267,8 +1476,24 @@ public:
 
 		for (int i = 0; i < 4; ++i)
 		{
-			tyreTemperatures[i] = 85.0f + 15.0f * sinf(now / 2500.0f + i);
+			tyreTemperatures[i] = 70.0f + 20.0f * sinf(now / 2500.0f + i);
+			tyreRadiusMm[i] = 330.0f + 0.5f * i + 0.3f * sinf(now / 4000.0f + i);
 		}
+		remainingTime = "18:42";
+		
+		// Historique des tours simule: un tour toutes les 12 s, un tour sur 5 "au stand".
+		const uint32_t demoLap = now / 12000;
+		clearLapHistory();
+		const uint32_t firstDemoLap = demoLap > 8 ? demoLap - 7 : 1;
+		for (uint32_t lap = firstDemoLap; lap <= demoLap; ++lap)
+		{
+			const bool demoPit = (lap % 5 == 0);
+			pushLapHistory(lap, 84000 + (lap * 7919) % 2500 + (demoPit ? 9000 : 0), demoPit);
+		}
+		bestLapMs = -1;
+		for (int i = 0; i < lapHistoryCount; ++i)
+			if (!lapHistoryPit[i] && (bestLapMs < 0 || lapHistoryMs[i] < bestLapMs))
+				bestLapMs = lapHistoryMs[i];		
 
 		gameRunning = "True";
 
@@ -1283,23 +1508,6 @@ public:
 		}
 	}
 
-	// Cadre de test pour reperer la surface reellement affichable :
-	//  - rouge  : limites du panneau (tft.width() x tft.height()) ;
-	//  - vert   : bords droit et bas de la zone 320x240 utilisee par les themes ;
-	//  - jaune  : reperes aux 4 coins du panneau.
-	// Redessine apres chaque image pour rester au-dessus du theme.
-	void drawDemoFrame()
-	{
-		const int w = tft.width();
-		const int h = tft.height();
-		tft.drawRect(0, 0, w, h, TFT_RED);
-		tft.drawFastVLine(SCREEN_WIDTH - 1, 0, SCREEN_HEIGHT, TFT_GREEN);
-		tft.drawFastHLine(0, SCREEN_HEIGHT - 1, SCREEN_WIDTH, TFT_GREEN);
-		tft.fillRect(0, 0, 6, 6, TFT_YELLOW);
-		tft.fillRect(w - 6, 0, 6, 6, TFT_YELLOW);
-		tft.fillRect(0, h - 6, 6, 6, TFT_YELLOW);
-		tft.fillRect(w - 6, h - 6, 6, 6, TFT_YELLOW);
-	}
 #endif
 
 	void loop()
@@ -1404,10 +1612,6 @@ public:
 		{
 			drawPage2();
 		}
-
-#if DASHBOARD_DEMO_MODE
-		drawDemoFrame();
-#endif
 
 		forceUpdate = false;
 	}

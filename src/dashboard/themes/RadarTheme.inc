@@ -1,3 +1,96 @@
+// 08/10/2026 12:16 - Rapport N / R affiche (la police 7 segments ne contient que des chiffres : lettres en police 4 agrandie)
+// 07/10/2026 14:06 - Colonnes plus larges (90 px) et plus hautes (cellules de 47 px) ; tous les libelles (LAP, POS, BEST, REM TIME, CURRENT, PEDALS...) et toutes les valeurs a la meme echelle
+// 07/10/2026 01:02 - Libelle GEAR remonte et en police 2 (comme RPM), bandeau des tours alimente par l'historique glissant (meilleur tour en bleu, tour avec arret au stand en rouge)
+// 06/10/2026 23:09 - Colonnes a 5 cellules (REM TIME, bloc rayons des pneus a la place de LAST), LAP/POS/FUEL/REM plus gros, RPM descendu et agrandi
+// 06/10/2026 16:37 - Pneus: temperatures en gros chiffres colores avec degre (plus de barres), graduations RPM derivees du rayon du cadran, zone DELTA a la taille du texte, bandeau horizontal des derniers tours
+// Layout 480x320 : trois colonnes gauche / centre / droite.
+static constexpr int SCREEN_WIDTH = 480;
+static constexpr int COLUMN_WIDTH = 90;
+static constexpr int COLUMN_PADDING = 6;
+static constexpr int COLUMN_CONTENT_WIDTH = COLUMN_WIDTH - 2 * COLUMN_PADDING;
+
+static constexpr int LEFT_X = 0;
+static constexpr int CENTER_COL_X = 160;
+static constexpr int RIGHT_X = SCREEN_WIDTH - COLUMN_WIDTH;
+static constexpr int TOP_Y = 0;
+
+// Colonnes laterales: 5 cellules de 47 px (le cadre s'arrete a y = 238, avant la barre du bas).
+static constexpr int COLUMN_CELL_HEIGHT = 47;
+static constexpr int COLUMN_CELL_COUNT = 5;
+static constexpr int COLUMN_FRAME_HEIGHT = COLUMN_CELL_COUNT * COLUMN_CELL_HEIGHT + 3;
+// Libelles et valeurs: meme echelle dans toutes les cellules.
+static constexpr float COLUMN_LABEL_SCALE = 1.4f;
+static constexpr float COLUMN_VALUE_SCALE = 1.2f;
+static constexpr int COLUMN_LABEL_DY = 4;
+static constexpr int COLUMN_VALUE_DY = 18;
+static constexpr int COLUMN_VALUE_HEIGHT = 27;
+static constexpr int cellY(int index) { return TOP_Y + index * COLUMN_CELL_HEIGHT; }
+
+// Bloc des rayons de pneus (colonne gauche, sous BEST): 4 lignes FL/FR/RL/RR.
+static constexpr int RADIUS_NAME_WIDTH = 14;
+static constexpr int RADIUS_ROW_DY = COLUMN_VALUE_DY;
+static constexpr int RADIUS_ROW_STEP = 19;
+static constexpr int RADIUS_ROW_HEIGHT = 17;
+
+static constexpr int RADAR_CENTER_X = 240;
+static constexpr int RADAR_CENTER_Y = 123;
+static constexpr int RPM_INNER_RADIUS = 98;
+static constexpr int RPM_OUTER_RADIUS = 114;
+static constexpr int RPM_FRAME_RADIUS = 118;
+// Texte RPM (libelle + valeur) dans l'ouverture basse du cadran.
+static constexpr int GEAR_LABEL_Y = 44;
+static constexpr int RPM_LABEL_Y = 188;
+static constexpr int RPM_VALUE_WIDTH = 80;
+static constexpr int RPM_VALUE_HEIGHT = 26;
+static constexpr int RPM_VALUE_Y = 207;
+// Graduations: meme relation au cadran que dans la version 320x240 d'origine.
+static constexpr int RPM_TICK_OUTER = RPM_INNER_RADIUS - 2;
+static constexpr int RPM_TICK_INNER_LONG = RPM_INNER_RADIUS - 10;
+static constexpr int RPM_TICK_INNER_SHORT = RPM_INNER_RADIUS - 7;
+
+
+// Barre d'état inférieure.
+static constexpr int BOTTOM_BAR_X = LEFT_X + 2;
+static constexpr int BOTTOM_BAR_Y = 248;
+static constexpr int BOTTOM_BAR_WIDTH = SCREEN_WIDTH - 4;
+static constexpr int BOTTOM_BAR_HEIGHT = 35;
+static constexpr int BOTTOM_BAR_RADIUS = 4;
+static constexpr int BOTTOM_BAR_SEPARATOR_1_X = LEFT_X + 102;
+static constexpr int BOTTOM_BAR_SEPARATOR_2_X = LEFT_X + 222;
+static constexpr int BOTTOM_BAR_SEPARATOR_Y = BOTTOM_BAR_Y + 1;
+static constexpr int BOTTOM_BAR_SEPARATOR_HEIGHT = BOTTOM_BAR_HEIGHT - 2;
+
+// Contenu de la barre inférieure.
+static constexpr int BOTTOM_LABEL_Y = BOTTOM_BAR_Y + 5;
+static constexpr int BOTTOM_ABS_X = LEFT_X + 8;
+static constexpr int BOTTOM_TCS_X = LEFT_X + 54;
+static constexpr int BOTTOM_DELTA_X = LEFT_X + 106;
+static constexpr int BOTTOM_DELTA_Y = BOTTOM_BAR_Y + 15;
+static constexpr int BOTTOM_DELTA_WIDTH = BOTTOM_BAR_SEPARATOR_2_X - BOTTOM_DELTA_X - 4;
+static constexpr int BOTTOM_DELTA_HEIGHT = 17;
+static constexpr int BOTTOM_ABS_DOT_X = LEFT_X + 29;
+static constexpr int BOTTOM_TCS_DOT_X = LEFT_X + 75;
+static constexpr int BOTTOM_STATUS_DOT_Y = BOTTOM_BAR_Y + 23;
+
+// Zone pneus: libelle a gauche (centre en hauteur), 4 temperatures a droite.
+static constexpr int BOTTOM_TYRE_X = LEFT_X + 227;
+static constexpr int BOTTOM_TYRE_Y = BOTTOM_BAR_Y + (BOTTOM_BAR_HEIGHT - 8) / 2;
+static constexpr int TYRE_CELL_WIDTH = 47;
+static constexpr int TYRE_VALUES_X = BOTTOM_TYRE_X + 59;
+static constexpr int TYRE_SPRITE_WIDTH = 4 * TYRE_CELL_WIDTH;
+static constexpr int TYRE_SPRITE_HEIGHT = BOTTOM_BAR_HEIGHT - 4;
+static constexpr int TYRE_SPRITE_Y = BOTTOM_BAR_Y + 2;
+
+// Bandeau horizontal des derniers tours, sous la barre d'etat.
+static constexpr int LAP_STRIP_COUNT = DashboardState::LAP_HISTORY_SIZE;
+static constexpr int LAP_STRIP_X = BOTTOM_BAR_X;
+static constexpr int LAP_STRIP_Y = BOTTOM_BAR_Y + BOTTOM_BAR_HEIGHT + 4;
+static constexpr int LAP_STRIP_WIDTH = BOTTOM_BAR_WIDTH;
+static constexpr int LAP_STRIP_HEIGHT = 31;
+static constexpr int LAP_STRIP_CELL_WIDTH = LAP_STRIP_WIDTH / LAP_STRIP_COUNT;
+static constexpr int LAP_STRIP_CELLS_X = LAP_STRIP_X +
+	(LAP_STRIP_WIDTH - LAP_STRIP_COUNT * LAP_STRIP_CELL_WIDTH) / 2;
+
 	void drawRadarValue(int32_t x, int32_t y, int32_t width, int32_t height,
 		const String &value, const String &id, uint16_t color, uint8_t font,
 		textdatum_t datum, bool forceUpdate, float scaleX = 1.0f,
@@ -17,6 +110,14 @@
 		prevData[id] = cacheState;
 	}
 
+	// "01:24.631" -> "1:24.631": un caractere de moins, sans perte d'information.
+	String radarShortLapTime(const String &lapTime)
+	{
+		if (lapTime.length() > 1 && lapTime[0] == '0' && isDigit(lapTime[1]))
+			return lapTime.substring(1);
+		return lapTime;
+	}
+
 	void drawRadarLapValue(int32_t x, int32_t y, int32_t width,
 		int32_t height, const String &value, bool forceUpdate)
 	{
@@ -24,7 +125,7 @@
 		tft.fillRect(x, y, width, height, TFT_BLACK);
 		tft.setTextColor(TFT_WHITE, TFT_BLACK);
 		tft.setTextDatum(ML_DATUM);
-		tft.setTextSize(0.98f, 1.0f);
+		tft.setTextSize(COLUMN_VALUE_SCALE);
 		tft.setTextFont(2);
 
 		const int separator = value.indexOf('/');
@@ -96,7 +197,7 @@
 		if (!spriteCreated)
 		{
 			pedalSprite.setColorDepth(16);
-			spriteCreated = pedalSprite.createSprite(56, 24) != nullptr;
+			spriteCreated = pedalSprite.createSprite(COLUMN_CONTENT_WIDTH, 24) != nullptr;
 		}
 		if (!spriteCreated) return;
 		const uint16_t frame = tft.color565(70, 74, 78);
@@ -112,17 +213,35 @@
 		for (int row = 0; row < 2; ++row)
 		{
 			const int y = 2 + row * 12;
-			pedalSprite.drawRect(10, y, 45, 7, frame);
-			const int inputWidth = 43 * values[row][0] / 100;
-			const int appliedWidth = 43 * values[row][1] / 100;
+			const int barX = 10;
+			const int barWidth = COLUMN_CONTENT_WIDTH - barX - 1;
+			pedalSprite.drawRect(barX, y, barWidth, 7, frame);
+			const int inputWidth = (barWidth - 2) * values[row][0] / 100;
+			const int appliedWidth = (barWidth - 2) * values[row][1] / 100;
 			if (inputWidth > 0)
 				pedalSprite.fillRect(11, y + 1, inputWidth, 5, input);
 			if (appliedWidth > 0)
 				pedalSprite.fillRect(11, y + 1, appliedWidth, 5, applied);
 		}
-		pedalSprite.pushSprite(258, 171);
+		pedalSprite.pushSprite(RIGHT_X + COLUMN_PADDING, cellY(4) + COLUMN_VALUE_DY);
 		prevData["radarPedals"] = cacheState;
 		releaseSpriteAfterThemePreview(pedalSprite, spriteCreated);
+	}
+
+	// Couleur de texte des pneus: le bleu "froid" de tyreTemperatureColor() est
+	// trop sombre sur fond noir, on l'eclaircit sous 65 degres.
+	uint16_t radarTyreTextColor(float temperature)
+	{
+		if (!isfinite(temperature) || temperature <= 0.0f)
+			return tft.color565(90, 94, 98);
+		if (temperature <= 50.0f) return tft.color565(70, 120, 255);
+		if (temperature < 65.0f)
+		{
+			const float amount = (temperature - 50.0f) / 15.0f;
+			return tft.color565(lroundf(70.0f * (1.0f - amount)),
+				lroundf(120.0f + 80.0f * amount), 255);
+		}
+		return tyreTemperatureColor(temperature);
 	}
 
 	void drawRadarTyres(const DashboardState &state, bool forceUpdate,
@@ -140,32 +259,91 @@
 		if (!spriteCreated)
 		{
 			sprite.setColorDepth(16);
-			spriteCreated = sprite.createSprite(88, 17) != nullptr;
+			spriteCreated = sprite.createSprite(
+				TYRE_SPRITE_WIDTH, TYRE_SPRITE_HEIGHT) != nullptr;
 		}
 		if (!spriteCreated) return;
 
 		sprite.fillSprite(TFT_BLACK);
-		sprite.setTextDatum(MC_DATUM);
+		sprite.setTextDatum(ML_DATUM);
 		sprite.setTextSize(1.0f);
 		for (int i = 0; i < 4; ++i)
 		{
-			const bool valid = isfinite(state.tyreTemperatures[i]) &&
-				state.tyreTemperatures[i] > 0.0f;
-			const uint16_t color = valid
-				? tyreTemperatureColor(state.tyreTemperatures[i])
-				: tft.color565(55, 59, 62);
-			const int x = i * 22;
-			sprite.setTextColor(valid ? TFT_LIGHTGREY : tft.color565(90, 94, 98),
-				TFT_BLACK);
-			sprite.drawString(valid
-				? String(lroundf(state.tyreTemperatures[i])) : "--",
-				x + 10, 6, 1);
-			sprite.fillRoundRect(x + 5, 12, 10, 2, 1, color);
+			const float temperature = state.tyreTemperatures[i];
+			const bool valid = isfinite(temperature) && temperature > 0.0f;
+			const String text = valid ? String(lroundf(temperature)) : String("--");
+			const uint16_t color = radarTyreTextColor(temperature);
+
+			// 3 chiffres (>= 100): police plus petite pour rester dans la cellule.
+			const bool compact = text.length() >= 3;
+			sprite.setFont(compact ? &fonts::FreeSansBold9pt7b
+				: &fonts::FreeSansBold12pt7b);
+			sprite.setTextColor(color, TFT_BLACK);
+
+			// Le degre est dessine (deux cercles = trait epais): les polices
+			// GFX utilisees ici n'ont pas le caractere degre.
+			const int degreeRadius = compact ? 2 : 3;
+			const int degreeWidth = valid ? 2 * degreeRadius + 1 + 3 : 0;
+			const int textWidth = sprite.textWidth(text);
+			const int left = i * TYRE_CELL_WIDTH +
+				(TYRE_CELL_WIDTH - textWidth - degreeWidth) / 2;
+			const int centerY = TYRE_SPRITE_HEIGHT / 2;
+			sprite.drawString(text, left, centerY);
+			if (valid)
+			{
+				const int degreeX = left + textWidth + 3 + degreeRadius;
+				const int degreeY = centerY - (compact ? 5 : 7);
+				sprite.drawCircle(degreeX, degreeY, degreeRadius, color);
+				sprite.drawCircle(degreeX, degreeY, degreeRadius - 1, color);
+			}
 		}
-		sprite.setTextSize(1.0f);
-		sprite.pushSprite(226, 218);
+		sprite.pushSprite(TYRE_VALUES_X, TYRE_SPRITE_Y);
 		prevData["radarTyres"] = cacheState;
 		releaseSpriteAfterThemePreview(sprite, spriteCreated);
+	}
+
+	// Bandeau horizontal: LAP_STRIP_COUNT cellules (numero du tour au-dessus,
+	// temps en dessous), du plus ancien (gauche) au plus recent (droite).
+	// Temps en bleu = meilleur tour, en rouge = tour avec arret au stand.
+	void drawRadarLapStrip(const DashboardState &state, bool forceUpdate)
+	{
+		String cacheState = String(state.bestLapMs);
+		for (int i = 0; i < state.lapHistoryCount; ++i)
+		{
+			cacheState += "|" + String(state.lapHistoryNumber[i]) + "," +
+				String(state.lapHistoryMs[i]) + (state.lapHistoryPit[i] ? "P" : "");
+		}
+		if (!forceUpdate && prevData["radarLapStrip"] == cacheState) return;
+
+		const uint16_t muted = tft.color565(150, 154, 158);
+		const uint16_t blue = tft.color565(60, 140, 255);
+		const uint16_t red = tft.color565(255, 70, 52);
+		tft.setTextDatum(MC_DATUM);
+		tft.setTextSize(1.0f);
+		for (int i = 0; i < LAP_STRIP_COUNT; ++i)
+		{
+			const int cellX = LAP_STRIP_CELLS_X + i * LAP_STRIP_CELL_WIDTH;
+			// La ligne verticale de gauche (separateur) reste intacte.
+			tft.fillRect(cellX + 1, LAP_STRIP_Y + 2, LAP_STRIP_CELL_WIDTH - 1,
+				LAP_STRIP_HEIGHT - 4, TFT_BLACK);
+			if (i >= state.lapHistoryCount) continue;
+
+			const int32_t lapMs = state.lapHistoryMs[i];
+			const bool pit = state.lapHistoryPit[i];
+			const bool best = lapMs == state.bestLapMs;
+			// Le rouge (stand) l'emporte sur le bleu (meilleur tour).
+			const uint16_t timeColor = pit ? red : best ? blue : TFT_WHITE;
+
+			const String lapTime = radarShortLapTime(formatLapTimeMs(lapMs));
+			const int centerX = cellX + LAP_STRIP_CELL_WIDTH / 2;
+			tft.setTextColor(muted, TFT_BLACK);
+			tft.drawString("LAP " + String(state.lapHistoryNumber[i]), centerX,
+				LAP_STRIP_Y + 9, 1);
+			tft.setTextColor(timeColor, TFT_BLACK);
+			tft.drawString(lapTime, centerX, LAP_STRIP_Y + 21, 1);
+		}
+		tft.setTextDatum(TL_DATUM);
+		prevData["radarLapStrip"] = cacheState;
 	}
 
 	void drawRadarStatusDot(int32_t x, int32_t y, bool active,
@@ -189,10 +367,8 @@
 
 	void drawRadarRpm(const DashboardState &state, bool forceUpdate)
 	{
-		static constexpr int CENTER_X = 160;
-		static constexpr int CENTER_Y = 108;
-		static constexpr int INNER_RADIUS = 70;
-		static constexpr int OUTER_RADIUS = 84;
+		static constexpr int CENTER_X = RADAR_CENTER_X;
+		static constexpr int CENTER_Y = RADAR_CENTER_Y;
 		static constexpr int SEGMENT_COUNT = 36;
 		static constexpr float START_DEGREES = 140.0f;
 		static constexpr float SWEEP_DEGREES = 260.0f;
@@ -294,10 +470,10 @@
 			const float halfAngle = SWEEP_DEGREES /
 				(SEGMENT_COUNT - 1) * 0.30f;
 			int x1, y1, x2, y2, x3, y3, x4, y4;
-			pointAt(centerAngle - halfAngle, 70, x1, y1);
-			pointAt(centerAngle - halfAngle, 84, x2, y2);
-			pointAt(centerAngle + halfAngle, 70, x3, y3);
-			pointAt(centerAngle + halfAngle, 84, x4, y4);
+			pointAt(centerAngle - halfAngle, RPM_INNER_RADIUS, x1, y1);
+			pointAt(centerAngle - halfAngle, RPM_OUTER_RADIUS, x2, y2);
+			pointAt(centerAngle + halfAngle, RPM_INNER_RADIUS, x3, y3);
+			pointAt(centerAngle + halfAngle, RPM_OUTER_RADIUS, x4, y4);
 			tft.fillTriangle(x1, y1, x2, y2, x3, y3, color);
 			tft.fillTriangle(x2, y2, x4, y4, x3, y3, color);
 		}
@@ -308,8 +484,8 @@
 				SWEEP_DEGREES * constrain(
 					state.rpmRedLineSetting / 100.0f, 0.0f, 1.0f);
 			int x1, y1, x2, y2;
-			pointAt(markerAngle, INNER_RADIUS - 5, x1, y1);
-			pointAt(markerAngle, OUTER_RADIUS + 3, x2, y2);
+			pointAt(markerAngle, RPM_INNER_RADIUS - 5, x1, y1);
+			pointAt(markerAngle, RPM_OUTER_RADIUS + 3, x2, y2);
 			tft.drawLine(x1, y1, x2, y2, tft.color565(255, 80, 42));
 		}
 		previousActive = active;
@@ -342,69 +518,109 @@
 			tft.setTextDatum(TL_DATUM);
 			tft.setTextSize(1.0f);
 
-			tft.fillCircle(160, 108, 88, TFT_BLACK);
-			tft.drawCircle(160, 108, 88, tft.color565(62, 65, 68));
-			tft.drawCircle(160, 108, 86, tft.color565(35, 38, 40));
+			tft.fillCircle(RADAR_CENTER_X, RADAR_CENTER_Y, RPM_FRAME_RADIUS, TFT_BLACK);
+			tft.drawCircle(RADAR_CENTER_X, RADAR_CENTER_Y, RPM_FRAME_RADIUS, tft.color565(62, 65, 68));
+			tft.drawCircle(RADAR_CENTER_X, RADAR_CENTER_Y, RPM_FRAME_RADIUS - 2, tft.color565(35, 38, 40));
 
-			tft.drawRoundRect(2, 20, 65, 179, 4, frame);
-			tft.drawRoundRect(253, 20, 65, 179, 4, frame);
-			for (int y : {64, 108, 152})
+			tft.drawRoundRect(LEFT_X + 1, TOP_Y, COLUMN_WIDTH - 2, COLUMN_FRAME_HEIGHT, 4, frame);
+			tft.drawRoundRect(RIGHT_X + 1, TOP_Y, COLUMN_WIDTH - 2, COLUMN_FRAME_HEIGHT, 4, frame);
+			for (int cell = 1; cell < COLUMN_CELL_COUNT; ++cell)
 			{
-				tft.drawFastHLine(3, y, 63, frame);
-				tft.drawFastHLine(254, y, 63, frame);
+				// Colonne gauche: 3 cellules puis le bloc des rayons (plus haut).
+				if (cell <= 3)
+					tft.drawFastHLine(LEFT_X + 2, cellY(cell), COLUMN_WIDTH - 4, frame);
+				tft.drawFastHLine(RIGHT_X + 2, cellY(cell), COLUMN_WIDTH - 4, frame);
 			}
-			tft.drawRoundRect(2, 203, 316, 35, 4, frame);
-			tft.drawFastVLine(102, 204, 33, frame);
-			tft.drawFastVLine(222, 204, 33, frame);
+			tft.drawRoundRect(BOTTOM_BAR_X, BOTTOM_BAR_Y,
+				BOTTOM_BAR_WIDTH, BOTTOM_BAR_HEIGHT, BOTTOM_BAR_RADIUS, frame);
+			tft.drawFastVLine(BOTTOM_BAR_SEPARATOR_1_X, BOTTOM_BAR_SEPARATOR_Y,
+				BOTTOM_BAR_SEPARATOR_HEIGHT, frame);
+			tft.drawFastVLine(BOTTOM_BAR_SEPARATOR_2_X, BOTTOM_BAR_SEPARATOR_Y,
+				BOTTOM_BAR_SEPARATOR_HEIGHT, frame);
+			tft.drawRoundRect(LAP_STRIP_X, LAP_STRIP_Y, LAP_STRIP_WIDTH,
+				LAP_STRIP_HEIGHT, BOTTOM_BAR_RADIUS, frame);
+			for (int i = 1; i < LAP_STRIP_COUNT; ++i)
+				tft.drawFastVLine(LAP_STRIP_CELLS_X + i * LAP_STRIP_CELL_WIDTH,
+					LAP_STRIP_Y + 1, LAP_STRIP_HEIGHT - 2, frame);
 
 			for (int i = 0; i <= 12; ++i)
 			{
 				const float angle = (140.0f + 260.0f * i / 12.0f) * DEG_TO_RAD;
-				const int inner = i % 3 == 0 ? 60 : 63;
-				const int x1 = 160 + lroundf(cosf(angle) * inner);
-				const int y1 = 108 + lroundf(sinf(angle) * inner);
-				const int tickOuter = 68;
-				const int x2 = 160 + lroundf(cosf(angle) * tickOuter);
-				const int y2 = 108 + lroundf(sinf(angle) * tickOuter);
+				const int inner = i % 3 == 0 ? RPM_TICK_INNER_LONG : RPM_TICK_INNER_SHORT;
+				const int x1 = RADAR_CENTER_X + lroundf(cosf(angle) * inner);
+				const int y1 = RADAR_CENTER_Y + lroundf(sinf(angle) * inner);
+				const int x2 = RADAR_CENTER_X + lroundf(cosf(angle) * RPM_TICK_OUTER);
+				const int y2 = RADAR_CENTER_Y + lroundf(sinf(angle) * RPM_TICK_OUTER);
 				tft.drawLine(x1, y1, x2, y2,
 					i % 3 == 0 ? TFT_WHITE : tft.color565(85, 88, 92));
 			}
 
+			// Tous les libelles de colonnes: meme police, meme echelle.
 			tft.setTextColor(muted, TFT_BLACK);
-			tft.drawString("LAP", 8, 25, 1);
-			tft.drawString("POS", 8, 69, 1);
-			tft.drawString("BEST", 8, 113, 1);
-			tft.drawString("LAST", 8, 157, 1);
-			tft.drawString(state.fuelLabel, 260, 25, 1);
-			tft.drawString("REM", 260, 69, 1);
-			tft.drawString("CURRENT", 258, 113, 1);
-			tft.drawString("PEDALS", 258, 155, 1);
-			tft.drawCentreString("GEAR", 160, 53, 1);
-			tft.drawCentreString("km/h", 160, 163, 1);
-			tft.drawCentreString("RPM", 160, 178, 1);
-			tft.drawString("ABS", 8, 208, 1);
-			tft.drawString("TCS", 54, 208, 1);
-			tft.drawString("DELTA", 110, 208, 1);
-			tft.drawString("TYRE TEMP", 230, 208, 1);
+			tft.setTextSize(COLUMN_LABEL_SCALE);
+			const int labelX = LEFT_X + COLUMN_PADDING;
+			const int rightLabelX = RIGHT_X + COLUMN_PADDING;
+			tft.drawString("LAP", labelX, cellY(0) + COLUMN_LABEL_DY, 1);
+			tft.drawString("POS", labelX, cellY(1) + COLUMN_LABEL_DY, 1);
+			tft.drawString("BEST", labelX, cellY(2) + COLUMN_LABEL_DY, 1);
+			tft.drawString("RADIUS mm", labelX, cellY(3) + COLUMN_LABEL_DY, 1);
+			tft.drawString(state.fuelLabel, rightLabelX, cellY(0) + COLUMN_LABEL_DY, 1);
+			tft.drawString("REM", rightLabelX, cellY(1) + COLUMN_LABEL_DY, 1);
+			tft.drawString("REM TIME", rightLabelX, cellY(2) + COLUMN_LABEL_DY, 1);
+			tft.drawString("CURRENT", rightLabelX, cellY(3) + COLUMN_LABEL_DY, 1);
+			tft.drawString("PEDALS", rightLabelX, cellY(4) + COLUMN_LABEL_DY, 1);
+			tft.setTextSize(1.0f);
+			static const char *const tyreNames[4] = {"FL", "FR", "RL", "RR"};
+			for (int i = 0; i < 4; ++i)
+				tft.drawString(tyreNames[i], labelX,
+					cellY(3) + RADIUS_ROW_DY + i * RADIUS_ROW_STEP + 4, 1);
+			tft.drawCentreString("GEAR", RADAR_CENTER_X, GEAR_LABEL_Y, 2);
+			tft.drawCentreString("km/h", RADAR_CENTER_X, 163, 1);
+			tft.drawCentreString("RPM", RADAR_CENTER_X, RPM_LABEL_Y, 2);
+			tft.drawString("ABS", BOTTOM_ABS_X, BOTTOM_LABEL_Y, 1);
+			tft.drawString("TCS", BOTTOM_TCS_X, BOTTOM_LABEL_Y, 1);
+			tft.drawString("DELTA", BOTTOM_DELTA_X, BOTTOM_LABEL_Y, 1);
+			tft.drawString("TYRE TEMP", BOTTOM_TYRE_X, BOTTOM_TYRE_Y, 1);
 		}
 
 		drawRadarRpm(state, redraw);
-		drawRadarLapValue(7, 36, 56, 24, state.tyrePressureRearLeft, redraw);
-		drawRadarValue(7, 80, 56, 24, state.tyrePressureFrontRight,
-			"radarPos", TFT_WHITE, 2, ML_DATUM, redraw, 1.05f, 1.0f);
-		drawRadarValue(7, 124, 56, 24, state.bestLapTime,
-			"radarBest", TFT_WHITE, 1, ML_DATUM, redraw);
-		drawRadarValue(7, 168, 56, 24, state.lastLapTime,
-			"radarLast", TFT_WHITE, 1, ML_DATUM, redraw);
-		drawRadarValue(257, 36, 57, 24, state.fuelDisplayValue,
-			"radarFuel", TFT_WHITE, 2, MR_DATUM, redraw, 1.0f, 1.0f);
-		drawRadarValue(257, 80, 57, 24, state.tyrePressureFrontLeft,
-			"radarRem", TFT_WHITE, 2, MR_DATUM, redraw, 1.0f, 1.0f);
-		drawRadarValueBuffered(257, 124, 57, 22, state.currentLapTime,
-			"radarCurrent", state.lapInvalidated == "True" ? red : TFT_WHITE,
-			1, MR_DATUM, redraw, currentSprite, currentSpriteCreated);
+		const int valueX = LEFT_X + COLUMN_PADDING;
+		const int rightValueX = RIGHT_X + COLUMN_PADDING;
+		drawRadarLapValue(valueX, cellY(0) + COLUMN_VALUE_DY, COLUMN_CONTENT_WIDTH,
+			COLUMN_VALUE_HEIGHT, state.tyrePressureRearLeft, redraw);
+		drawRadarValue(valueX, cellY(1) + COLUMN_VALUE_DY, COLUMN_CONTENT_WIDTH,
+			COLUMN_VALUE_HEIGHT, state.tyrePressureFrontRight, "radarPos",
+			TFT_WHITE, 2, ML_DATUM, redraw, COLUMN_VALUE_SCALE, COLUMN_VALUE_SCALE);
+		drawRadarValue(valueX, cellY(2) + COLUMN_VALUE_DY, COLUMN_CONTENT_WIDTH,
+			COLUMN_VALUE_HEIGHT, radarShortLapTime(state.bestLapTime),
+			"radarBest", TFT_WHITE, 2, ML_DATUM, redraw,
+			COLUMN_VALUE_SCALE, COLUMN_VALUE_SCALE);
+		for (int i = 0; i < 4; ++i)
+		{
+			const String radius = isfinite(state.tyreRadiusMm[i])
+				? String(state.tyreRadiusMm[i], 1) : String("--");
+			drawRadarValue(valueX + RADIUS_NAME_WIDTH,
+				cellY(3) + RADIUS_ROW_DY + i * RADIUS_ROW_STEP,
+				COLUMN_CONTENT_WIDTH - RADIUS_NAME_WIDTH, RADIUS_ROW_HEIGHT, radius,
+				"radarRadius" + String(i), TFT_WHITE, 2, MR_DATUM, redraw);
+		}
+		drawRadarValue(rightValueX, cellY(0) + COLUMN_VALUE_DY, COLUMN_CONTENT_WIDTH,
+			COLUMN_VALUE_HEIGHT, state.fuelDisplayValue, "radarFuel",
+			TFT_WHITE, 2, MR_DATUM, redraw, COLUMN_VALUE_SCALE, COLUMN_VALUE_SCALE);
+		drawRadarValue(rightValueX, cellY(1) + COLUMN_VALUE_DY, COLUMN_CONTENT_WIDTH,
+			COLUMN_VALUE_HEIGHT, state.tyrePressureFrontLeft, "radarRem",
+			TFT_WHITE, 2, MR_DATUM, redraw, COLUMN_VALUE_SCALE, COLUMN_VALUE_SCALE);
+		drawRadarValue(rightValueX, cellY(2) + COLUMN_VALUE_DY, COLUMN_CONTENT_WIDTH,
+			COLUMN_VALUE_HEIGHT, state.remainingTime, "radarRemTime",
+			TFT_WHITE, 2, MR_DATUM, redraw, COLUMN_VALUE_SCALE, COLUMN_VALUE_SCALE);
+		drawRadarValueBuffered(rightValueX, cellY(3) + COLUMN_VALUE_DY, COLUMN_CONTENT_WIDTH,
+			COLUMN_VALUE_HEIGHT, radarShortLapTime(state.currentLapTime), "radarCurrent",
+			state.lapInvalidated == "True" ? red : TFT_WHITE,
+			2, MR_DATUM, redraw, currentSprite, currentSpriteCreated,
+			COLUMN_VALUE_SCALE, COLUMN_VALUE_SCALE);
 
 		drawRadarTyres(state, redraw, tyreSprite, tyreSpriteCreated);
+		drawRadarLapStrip(state, redraw);
 		drawRadarPedals(state, redraw);
 
 		uint16_t deltaColor = TFT_WHITE;
@@ -414,21 +630,27 @@
 		String deltaDisplay = state.sessionBestLiveDeltaSeconds;
 		if (deltaDisplay.startsWith("+") || deltaDisplay.startsWith("-"))
 			deltaDisplay = deltaDisplay.substring(0, 1) + " " + deltaDisplay.substring(1);
-		drawRadarValue(106, 218, 112, 17, deltaDisplay,
+		drawRadarValue(BOTTOM_DELTA_X, BOTTOM_DELTA_Y,
+			BOTTOM_DELTA_WIDTH, BOTTOM_DELTA_HEIGHT, deltaDisplay,
 			"radarDelta", deltaColor, 2, MC_DATUM, redraw, 1.14f, 1.0f);
-		drawRadarStatusDot(29, 226, isActiveValue(state.absActive), "radarAbs",
-			yellow, muted, redraw);
-		drawRadarStatusDot(75, 226, isActiveValue(state.tcActive), "radarTcs",
-			blue, muted, redraw);
+		drawRadarStatusDot(BOTTOM_ABS_DOT_X, BOTTOM_STATUS_DOT_Y,
+			isActiveValue(state.absActive), "radarAbs", yellow, muted, redraw);
+		drawRadarStatusDot(BOTTOM_TCS_DOT_X, BOTTOM_STATUS_DOT_Y,
+			isActiveValue(state.tcActive), "radarTcs", blue, muted, redraw);
 
-		drawRadarValue(116, 63, 88, 56, state.gear, "radarGear",
-			TFT_WHITE, 7, MC_DATUM, redraw, 0.98f, 1.0f);
-		drawRadarValueBuffered(115, 121, 90, 39, state.speed, "radarSpeed",
+		// La police 7 segments n'a que des chiffres: "N" et "R" y seraient invisibles.
+		// Pour une lettre, on passe en police 4 agrandie (meme zone de 88 x 56 px).
+		const bool gearIsLetter = state.gear.length() > 0 && !isDigit(state.gear[0]);
+		drawRadarValue(CENTER_COL_X + 36, 63, 88, 56, state.gear, "radarGear",
+			TFT_WHITE, gearIsLetter ? 4 : 7, MC_DATUM, redraw,
+			gearIsLetter ? 2.0f : 0.98f, gearIsLetter ? 2.0f : 1.0f);
+		drawRadarValueBuffered(CENTER_COL_X + 35, 121, 90, 39, state.speed, "radarSpeed",
 			TFT_WHITE, 7, MC_DATUM, redraw, speedSprite, speedSpriteCreated,
 			0.66f, 0.72f);
 		const int displayedRpm = ((state.engineRpm + 25) / 50) * 50;
-		drawRadarValue(127, 187, 66, 16, String(displayedRpm), "radarRpm",
+		drawRadarValue(RADAR_CENTER_X - RPM_VALUE_WIDTH / 2, RPM_VALUE_Y,
+			RPM_VALUE_WIDTH, RPM_VALUE_HEIGHT, String(displayedRpm), "radarRpm",
 			state.revLimitAlertActive ? red : tft.color565(255, 118, 25),
-			2, MC_DATUM, redraw);
+			4, MC_DATUM, redraw);
 		prevData["radarLayoutState"] = layoutState;
 	}
