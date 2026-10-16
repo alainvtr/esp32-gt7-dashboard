@@ -1,3 +1,7 @@
+// 16/10/2026 14:08 - Libelles REM LAPS, REM FUEL, POSITION ; km/h descendu de 3 px en police 2 (meme taille que GEAR et RPM)
+// 14/10/2026 16:49 - Valeurs des colonnes plus grosses (LAP et POS alignes a droite), barre ABS/TCS/DELTA/TYRE TEMP moins haute de 5 px, bandeau des tours plus haut de 5 px, 7 tours au lieu de 8 en plus gros
+// 14/10/2026 16:21 - Cellule TURBO (colonne gauche, sous PEDALS) : pression en bar + barre avec point 0 (depression a gauche, pression a droite)
+// 14/10/2026 15:57 - Zone RADIUS supprimee (le rayon n'evolue pas avec l'usure), PEDALS deplace dans la colonne gauche a sa place, pastilles ABS/TCS et valeur DELTA decalees de 5 px vers la droite et 5 px vers le haut
 // 08/10/2026 12:16 - Rapport N / R affiche (la police 7 segments ne contient que des chiffres : lettres en police 4 agrandie)
 // 07/10/2026 14:06 - Colonnes plus larges (90 px) et plus hautes (cellules de 47 px) ; tous les libelles (LAP, POS, BEST, REM TIME, CURRENT, PEDALS...) et toutes les valeurs a la meme echelle
 // 07/10/2026 01:02 - Libelle GEAR remonte et en police 2 (comme RPM), bandeau des tours alimente par l'historique glissant (meilleur tour en bleu, tour avec arret au stand en rouge)
@@ -20,17 +24,32 @@ static constexpr int COLUMN_CELL_COUNT = 5;
 static constexpr int COLUMN_FRAME_HEIGHT = COLUMN_CELL_COUNT * COLUMN_CELL_HEIGHT + 3;
 // Libelles et valeurs: meme echelle dans toutes les cellules.
 static constexpr float COLUMN_LABEL_SCALE = 1.4f;
-static constexpr float COLUMN_VALUE_SCALE = 1.2f;
+// 1.35 = maximum pour qu'un temps "1:24.631" (56 px en police 2) tienne dans 78 px.
+static constexpr float COLUMN_VALUE_SCALE = 1.35f;
 static constexpr int COLUMN_LABEL_DY = 4;
 static constexpr int COLUMN_VALUE_DY = 18;
 static constexpr int COLUMN_VALUE_HEIGHT = 27;
 static constexpr int cellY(int index) { return TOP_Y + index * COLUMN_CELL_HEIGHT; }
 
-// Bloc des rayons de pneus (colonne gauche, sous BEST): 4 lignes FL/FR/RL/RR.
-static constexpr int RADIUS_NAME_WIDTH = 14;
-static constexpr int RADIUS_ROW_DY = COLUMN_VALUE_DY;
-static constexpr int RADIUS_ROW_STEP = 19;
-static constexpr int RADIUS_ROW_HEIGHT = 17;
+// Cellule PEDALS: colonne gauche, sous BEST.
+static constexpr int PEDALS_CELL = 3;
+
+// Cellule TURBO: colonne gauche, sous PEDALS. Valeur + unite "bar", puis une barre
+// avec un point 0: la depression remplit vers la gauche, la pression vers la droite.
+static constexpr int TURBO_CELL = 4;
+static constexpr int TURBO_VALUE_DY = 16;
+static constexpr int TURBO_VALUE_HEIGHT = 20;
+static constexpr int TURBO_UNIT_WIDTH = 20;
+static constexpr int TURBO_BAR_DY = 38;
+static constexpr int TURBO_BAR_HEIGHT = 7;
+// Valeur TURBO: zone moins haute (barre en dessous), echelle d'origine des colonnes.
+static constexpr float TURBO_VALUE_SCALE = 1.2f;
+// Position du point 0 dans la barre (fraction de la largeur, depuis la gauche).
+static constexpr float TURBO_BAR_ZERO_FRACTION = 0.25f;
+// Pleine echelle a gauche: -1 bar (vide absolu, la depression ne peut pas aller au-dela).
+static constexpr float TURBO_VACUUM_SCALE_BAR = 1.0f;
+// Pleine echelle a droite: le maximum de la course, jamais moins que cette valeur.
+static constexpr float TURBO_MIN_BOOST_SCALE_BAR = 0.5f;
 
 static constexpr int RADAR_CENTER_X = 240;
 static constexpr int RADAR_CENTER_Y = 123;
@@ -53,7 +72,7 @@ static constexpr int RPM_TICK_INNER_SHORT = RPM_INNER_RADIUS - 7;
 static constexpr int BOTTOM_BAR_X = LEFT_X + 2;
 static constexpr int BOTTOM_BAR_Y = 248;
 static constexpr int BOTTOM_BAR_WIDTH = SCREEN_WIDTH - 4;
-static constexpr int BOTTOM_BAR_HEIGHT = 35;
+static constexpr int BOTTOM_BAR_HEIGHT = 30;
 static constexpr int BOTTOM_BAR_RADIUS = 4;
 static constexpr int BOTTOM_BAR_SEPARATOR_1_X = LEFT_X + 102;
 static constexpr int BOTTOM_BAR_SEPARATOR_2_X = LEFT_X + 222;
@@ -65,12 +84,20 @@ static constexpr int BOTTOM_LABEL_Y = BOTTOM_BAR_Y + 5;
 static constexpr int BOTTOM_ABS_X = LEFT_X + 8;
 static constexpr int BOTTOM_TCS_X = LEFT_X + 54;
 static constexpr int BOTTOM_DELTA_X = LEFT_X + 106;
-static constexpr int BOTTOM_DELTA_Y = BOTTOM_BAR_Y + 15;
-static constexpr int BOTTOM_DELTA_WIDTH = BOTTOM_BAR_SEPARATOR_2_X - BOTTOM_DELTA_X - 4;
-static constexpr int BOTTOM_DELTA_HEIGHT = 17;
-static constexpr int BOTTOM_ABS_DOT_X = LEFT_X + 29;
-static constexpr int BOTTOM_TCS_DOT_X = LEFT_X + 75;
-static constexpr int BOTTOM_STATUS_DOT_Y = BOTTOM_BAR_Y + 23;
+// Valeur DELTA: texte centre en x = 167, y = 266 (5 px plus a droite et plus haut
+// qu'avant). La zone effacee commence sous le libelle DELTA (y = 260) et s'arrete
+// avant le separateur droit: le texte est donc remonte de 5 px dans cette zone.
+static constexpr int BOTTOM_DELTA_TEXT_CENTER_X = BOTTOM_DELTA_X + 61;
+static constexpr int BOTTOM_DELTA_TEXT_CENTER_Y = BOTTOM_BAR_Y + 18;
+static constexpr int BOTTOM_DELTA_VALUE_Y = BOTTOM_LABEL_Y + 7;
+static constexpr int BOTTOM_DELTA_HEIGHT = BOTTOM_BAR_Y + BOTTOM_BAR_HEIGHT - 1 - BOTTOM_DELTA_VALUE_Y;
+static constexpr int BOTTOM_DELTA_WIDTH = 2 * (BOTTOM_BAR_SEPARATOR_2_X - 1 - BOTTOM_DELTA_TEXT_CENTER_X);
+static constexpr int BOTTOM_DELTA_VALUE_X = BOTTOM_DELTA_TEXT_CENTER_X - BOTTOM_DELTA_WIDTH / 2;
+static constexpr int BOTTOM_DELTA_TEXT_DY = BOTTOM_DELTA_TEXT_CENTER_Y -
+	(BOTTOM_DELTA_VALUE_Y + BOTTOM_DELTA_HEIGHT / 2);
+static constexpr int BOTTOM_ABS_DOT_X = LEFT_X + 34;
+static constexpr int BOTTOM_TCS_DOT_X = LEFT_X + 80;
+static constexpr int BOTTOM_STATUS_DOT_Y = BOTTOM_BAR_Y + 18;
 
 // Zone pneus: libelle a gauche (centre en hauteur), 4 temperatures a droite.
 static constexpr int BOTTOM_TYRE_X = LEFT_X + 227;
@@ -86,7 +113,11 @@ static constexpr int LAP_STRIP_COUNT = DashboardState::LAP_HISTORY_SIZE;
 static constexpr int LAP_STRIP_X = BOTTOM_BAR_X;
 static constexpr int LAP_STRIP_Y = BOTTOM_BAR_Y + BOTTOM_BAR_HEIGHT + 4;
 static constexpr int LAP_STRIP_WIDTH = BOTTOM_BAR_WIDTH;
-static constexpr int LAP_STRIP_HEIGHT = 31;
+static constexpr int LAP_STRIP_HEIGHT = 36;
+// Textes du bandeau: "LAP n" en police 1 agrandie, temps en police 2.
+static constexpr float LAP_STRIP_LABEL_SCALE = 1.5f;
+static constexpr int LAP_STRIP_LABEL_DY = 10;
+static constexpr int LAP_STRIP_TIME_DY = 25;
 static constexpr int LAP_STRIP_CELL_WIDTH = LAP_STRIP_WIDTH / LAP_STRIP_COUNT;
 static constexpr int LAP_STRIP_CELLS_X = LAP_STRIP_X +
 	(LAP_STRIP_WIDTH - LAP_STRIP_COUNT * LAP_STRIP_CELL_WIDTH) / 2;
@@ -94,7 +125,7 @@ static constexpr int LAP_STRIP_CELLS_X = LAP_STRIP_X +
 	void drawRadarValue(int32_t x, int32_t y, int32_t width, int32_t height,
 		const String &value, const String &id, uint16_t color, uint8_t font,
 		textdatum_t datum, bool forceUpdate, float scaleX = 1.0f,
-		float scaleY = 1.0f)
+		float scaleY = 1.0f, int32_t textDy = 0)
 	{
 		const String cacheState = value + ":" + String(color);
 		if (!forceUpdate && prevData[id] == cacheState) return;
@@ -104,7 +135,8 @@ static constexpr int LAP_STRIP_CELLS_X = LAP_STRIP_X +
 		tft.setTextSize(scaleX, scaleY);
 		const int32_t textX = datum == MR_DATUM ? x + width - 1
 			: (datum == MC_DATUM ? x + width / 2 : x + 1);
-		tft.drawString(value, textX, y + height / 2, font);
+		// textDy: decale le texte verticalement par rapport au centre de la zone effacee.
+		tft.drawString(value, textX, y + height / 2 + textDy, font);
 		tft.setTextSize(1.0f);
 		tft.setTextDatum(TL_DATUM);
 		prevData[id] = cacheState;
@@ -128,12 +160,17 @@ static constexpr int LAP_STRIP_CELLS_X = LAP_STRIP_X +
 		tft.setTextSize(COLUMN_VALUE_SCALE);
 		tft.setTextFont(2);
 
+		// Aligne a droite: on mesure d'abord la largeur totale, puis on part
+		// de la gauche pour garder les 2 px d'espace autour du "/".
+		const int32_t right = x + width - 1;
 		const int separator = value.indexOf('/');
 		if (separator > 0 && separator < value.length() - 1)
 		{
 			const String currentLap = value.substring(0, separator);
 			const String totalLaps = value.substring(separator + 1);
-			int32_t textX = x + 1;
+			const int32_t total = tft.textWidth(currentLap) + 2 +
+				tft.textWidth("/") + 2 + tft.textWidth(totalLaps);
+			int32_t textX = right - total;
 			tft.drawString(currentLap, textX, y + height / 2);
 			textX += tft.textWidth(currentLap) + 2;
 			tft.drawString("/", textX, y + height / 2);
@@ -142,7 +179,7 @@ static constexpr int LAP_STRIP_CELLS_X = LAP_STRIP_X +
 		}
 		else
 		{
-			tft.drawString(value, x + 1, y + height / 2);
+			tft.drawString(value, right - tft.textWidth(value), y + height / 2);
 		}
 
 		tft.setTextFont(1);
@@ -223,9 +260,51 @@ static constexpr int LAP_STRIP_CELLS_X = LAP_STRIP_X +
 			if (appliedWidth > 0)
 				pedalSprite.fillRect(11, y + 1, appliedWidth, 5, applied);
 		}
-		pedalSprite.pushSprite(RIGHT_X + COLUMN_PADDING, cellY(4) + COLUMN_VALUE_DY);
+		pedalSprite.pushSprite(LEFT_X + COLUMN_PADDING, cellY(PEDALS_CELL) + COLUMN_VALUE_DY);
 		prevData["radarPedals"] = cacheState;
 		releaseSpriteAfterThemePreview(pedalSprite, spriteCreated);
+	}
+
+	// Barre TURBO: le cache porte sur les pixels remplis, pas sur la valeur,
+	// pour ne redessiner que si l'affichage change vraiment.
+	void drawRadarTurboBar(const DashboardState &state, bool forceUpdate)
+	{
+		const int x = LEFT_X + COLUMN_PADDING;
+		const int y = cellY(TURBO_CELL) + TURBO_BAR_DY;
+		const int innerX = x + 1;
+		const int innerWidth = COLUMN_CONTENT_WIDTH - 2;
+		const int zeroX = innerX + lroundf(innerWidth * TURBO_BAR_ZERO_FRACTION);
+		const int leftSpan = zeroX - innerX;
+		const int rightSpan = innerX + innerWidth - 1 - zeroX;
+
+		int fillStart = zeroX;
+		int fillEnd = zeroX;
+		const float boost = state.turboBoostBar;
+		if (isfinite(boost) && boost > 0.0f)
+		{
+			const float scale = max(state.turboBoostMaxBar, TURBO_MIN_BOOST_SCALE_BAR);
+			fillEnd = zeroX + lroundf(rightSpan * constrain(boost / scale, 0.0f, 1.0f));
+		}
+		else if (isfinite(boost) && boost < 0.0f)
+		{
+			fillStart = zeroX - lroundf(leftSpan *
+				constrain(-boost / TURBO_VACUUM_SCALE_BAR, 0.0f, 1.0f));
+		}
+		const String cacheState = String(fillStart) + ":" + String(fillEnd);
+		if (!forceUpdate && prevData["radarTurboBar"] == cacheState) return;
+
+		const uint16_t frame = tft.color565(70, 74, 78);
+		const uint16_t vacuum = tft.color565(112, 116, 120);
+		const uint16_t pressure = tft.color565(190, 195, 200);
+		tft.drawRect(x, y, COLUMN_CONTENT_WIDTH, TURBO_BAR_HEIGHT, frame);
+		tft.fillRect(innerX, y + 1, innerWidth, TURBO_BAR_HEIGHT - 2, TFT_BLACK);
+		if (fillEnd > zeroX)
+			tft.fillRect(zeroX + 1, y + 1, fillEnd - zeroX, TURBO_BAR_HEIGHT - 2, pressure);
+		if (fillStart < zeroX)
+			tft.fillRect(fillStart, y + 1, zeroX - fillStart, TURBO_BAR_HEIGHT - 2, vacuum);
+		// Point 0: trait blanc qui depasse de la barre.
+		tft.drawFastVLine(zeroX, y - 2, TURBO_BAR_HEIGHT + 4, TFT_WHITE);
+		prevData["radarTurboBar"] = cacheState;
 	}
 
 	// Couleur de texte des pneus: le bleu "froid" de tyreTemperatureColor() est
@@ -337,10 +416,12 @@ static constexpr int LAP_STRIP_CELLS_X = LAP_STRIP_X +
 			const String lapTime = radarShortLapTime(formatLapTimeMs(lapMs));
 			const int centerX = cellX + LAP_STRIP_CELL_WIDTH / 2;
 			tft.setTextColor(muted, TFT_BLACK);
+			tft.setTextSize(LAP_STRIP_LABEL_SCALE);
 			tft.drawString("LAP " + String(state.lapHistoryNumber[i]), centerX,
-				LAP_STRIP_Y + 9, 1);
+				LAP_STRIP_Y + LAP_STRIP_LABEL_DY, 1);
+			tft.setTextSize(1.0f);
 			tft.setTextColor(timeColor, TFT_BLACK);
-			tft.drawString(lapTime, centerX, LAP_STRIP_Y + 21, 1);
+			tft.drawString(lapTime, centerX, LAP_STRIP_Y + LAP_STRIP_TIME_DY, 2);
 		}
 		tft.setTextDatum(TL_DATUM);
 		prevData["radarLapStrip"] = cacheState;
@@ -526,9 +607,7 @@ static constexpr int LAP_STRIP_CELLS_X = LAP_STRIP_X +
 			tft.drawRoundRect(RIGHT_X + 1, TOP_Y, COLUMN_WIDTH - 2, COLUMN_FRAME_HEIGHT, 4, frame);
 			for (int cell = 1; cell < COLUMN_CELL_COUNT; ++cell)
 			{
-				// Colonne gauche: 3 cellules puis le bloc des rayons (plus haut).
-				if (cell <= 3)
-					tft.drawFastHLine(LEFT_X + 2, cellY(cell), COLUMN_WIDTH - 4, frame);
+				tft.drawFastHLine(LEFT_X + 2, cellY(cell), COLUMN_WIDTH - 4, frame);
 				tft.drawFastHLine(RIGHT_X + 2, cellY(cell), COLUMN_WIDTH - 4, frame);
 			}
 			tft.drawRoundRect(BOTTOM_BAR_X, BOTTOM_BAR_Y,
@@ -561,21 +640,21 @@ static constexpr int LAP_STRIP_CELLS_X = LAP_STRIP_X +
 			const int labelX = LEFT_X + COLUMN_PADDING;
 			const int rightLabelX = RIGHT_X + COLUMN_PADDING;
 			tft.drawString("LAP", labelX, cellY(0) + COLUMN_LABEL_DY, 1);
-			tft.drawString("POS", labelX, cellY(1) + COLUMN_LABEL_DY, 1);
+			tft.drawString("POSITION", labelX, cellY(1) + COLUMN_LABEL_DY, 1);
 			tft.drawString("BEST", labelX, cellY(2) + COLUMN_LABEL_DY, 1);
-			tft.drawString("RADIUS mm", labelX, cellY(3) + COLUMN_LABEL_DY, 1);
-			tft.drawString(state.fuelLabel, rightLabelX, cellY(0) + COLUMN_LABEL_DY, 1);
-			tft.drawString("REM", rightLabelX, cellY(1) + COLUMN_LABEL_DY, 1);
+			tft.drawString("PEDALS", labelX, cellY(PEDALS_CELL) + COLUMN_LABEL_DY, 1);
+			tft.drawString("TURBO", labelX, cellY(TURBO_CELL) + COLUMN_LABEL_DY, 1);
+			tft.drawString("REM " + state.fuelLabel, rightLabelX, cellY(0) + COLUMN_LABEL_DY, 1);
+			tft.drawString("REM LAPS", rightLabelX, cellY(1) + COLUMN_LABEL_DY, 1);
 			tft.drawString("REM TIME", rightLabelX, cellY(2) + COLUMN_LABEL_DY, 1);
 			tft.drawString("CURRENT", rightLabelX, cellY(3) + COLUMN_LABEL_DY, 1);
-			tft.drawString("PEDALS", rightLabelX, cellY(4) + COLUMN_LABEL_DY, 1);
 			tft.setTextSize(1.0f);
-			static const char *const tyreNames[4] = {"FL", "FR", "RL", "RR"};
-			for (int i = 0; i < 4; ++i)
-				tft.drawString(tyreNames[i], labelX,
-					cellY(3) + RADIUS_ROW_DY + i * RADIUS_ROW_STEP + 4, 1);
+			tft.setTextDatum(ML_DATUM);
+			tft.drawString("bar", labelX + COLUMN_CONTENT_WIDTH - TURBO_UNIT_WIDTH + 3,
+				cellY(TURBO_CELL) + TURBO_VALUE_DY + TURBO_VALUE_HEIGHT / 2, 1);
+			tft.setTextDatum(TL_DATUM);
 			tft.drawCentreString("GEAR", RADAR_CENTER_X, GEAR_LABEL_Y, 2);
-			tft.drawCentreString("km/h", RADAR_CENTER_X, 163, 1);
+			tft.drawCentreString("km/h", RADAR_CENTER_X, 166, 2);
 			tft.drawCentreString("RPM", RADAR_CENTER_X, RPM_LABEL_Y, 2);
 			tft.drawString("ABS", BOTTOM_ABS_X, BOTTOM_LABEL_Y, 1);
 			tft.drawString("TCS", BOTTOM_TCS_X, BOTTOM_LABEL_Y, 1);
@@ -590,20 +669,11 @@ static constexpr int LAP_STRIP_CELLS_X = LAP_STRIP_X +
 			COLUMN_VALUE_HEIGHT, state.tyrePressureRearLeft, redraw);
 		drawRadarValue(valueX, cellY(1) + COLUMN_VALUE_DY, COLUMN_CONTENT_WIDTH,
 			COLUMN_VALUE_HEIGHT, state.tyrePressureFrontRight, "radarPos",
-			TFT_WHITE, 2, ML_DATUM, redraw, COLUMN_VALUE_SCALE, COLUMN_VALUE_SCALE);
+			TFT_WHITE, 2, MR_DATUM, redraw, COLUMN_VALUE_SCALE, COLUMN_VALUE_SCALE);
 		drawRadarValue(valueX, cellY(2) + COLUMN_VALUE_DY, COLUMN_CONTENT_WIDTH,
 			COLUMN_VALUE_HEIGHT, radarShortLapTime(state.bestLapTime),
 			"radarBest", TFT_WHITE, 2, ML_DATUM, redraw,
 			COLUMN_VALUE_SCALE, COLUMN_VALUE_SCALE);
-		for (int i = 0; i < 4; ++i)
-		{
-			const String radius = isfinite(state.tyreRadiusMm[i])
-				? String(state.tyreRadiusMm[i], 1) : String("--");
-			drawRadarValue(valueX + RADIUS_NAME_WIDTH,
-				cellY(3) + RADIUS_ROW_DY + i * RADIUS_ROW_STEP,
-				COLUMN_CONTENT_WIDTH - RADIUS_NAME_WIDTH, RADIUS_ROW_HEIGHT, radius,
-				"radarRadius" + String(i), TFT_WHITE, 2, MR_DATUM, redraw);
-		}
 		drawRadarValue(rightValueX, cellY(0) + COLUMN_VALUE_DY, COLUMN_CONTENT_WIDTH,
 			COLUMN_VALUE_HEIGHT, state.fuelDisplayValue, "radarFuel",
 			TFT_WHITE, 2, MR_DATUM, redraw, COLUMN_VALUE_SCALE, COLUMN_VALUE_SCALE);
@@ -623,6 +693,19 @@ static constexpr int LAP_STRIP_CELLS_X = LAP_STRIP_X +
 		drawRadarLapStrip(state, redraw);
 		drawRadarPedals(state, redraw);
 
+		// Turbo: "--" pour une voiture sans turbo; arrondi au centieme sans "-0.00".
+		String turboText = "--";
+		if (isfinite(state.turboBoostBar))
+		{
+			const float rounded = roundf(state.turboBoostBar * 100.0f) / 100.0f;
+			turboText = String(rounded == 0.0f ? 0.0f : rounded, 2);
+		}
+		drawRadarValue(valueX, cellY(TURBO_CELL) + TURBO_VALUE_DY,
+			COLUMN_CONTENT_WIDTH - TURBO_UNIT_WIDTH, TURBO_VALUE_HEIGHT, turboText,
+			"radarTurbo", TFT_WHITE, 2, MR_DATUM, redraw,
+			TURBO_VALUE_SCALE, TURBO_VALUE_SCALE);
+		drawRadarTurboBar(state, redraw);
+
 		uint16_t deltaColor = TFT_WHITE;
 		if (state.sessionBestLiveDeltaSeconds.startsWith("-")) deltaColor = green;
 		else if (state.sessionBestLiveDeltaSeconds.startsWith("+") &&
@@ -630,9 +713,10 @@ static constexpr int LAP_STRIP_CELLS_X = LAP_STRIP_X +
 		String deltaDisplay = state.sessionBestLiveDeltaSeconds;
 		if (deltaDisplay.startsWith("+") || deltaDisplay.startsWith("-"))
 			deltaDisplay = deltaDisplay.substring(0, 1) + " " + deltaDisplay.substring(1);
-		drawRadarValue(BOTTOM_DELTA_X, BOTTOM_DELTA_Y,
+		drawRadarValue(BOTTOM_DELTA_VALUE_X, BOTTOM_DELTA_VALUE_Y,
 			BOTTOM_DELTA_WIDTH, BOTTOM_DELTA_HEIGHT, deltaDisplay,
-			"radarDelta", deltaColor, 2, MC_DATUM, redraw, 1.14f, 1.0f);
+			"radarDelta", deltaColor, 2, MC_DATUM, redraw, 1.14f, 1.0f,
+			BOTTOM_DELTA_TEXT_DY);
 		drawRadarStatusDot(BOTTOM_ABS_DOT_X, BOTTOM_STATUS_DOT_Y,
 			isActiveValue(state.absActive), "radarAbs", yellow, muted, redraw);
 		drawRadarStatusDot(BOTTOM_TCS_DOT_X, BOTTOM_STATUS_DOT_Y,

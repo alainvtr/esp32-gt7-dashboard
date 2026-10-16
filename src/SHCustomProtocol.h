@@ -6,6 +6,10 @@
 // 07/10/2026 14:06 - Suivi des tours terminés et détection du passage au pit (GT7 n'envoie aucun drapeau pit)
 // 08/10/2026 12:16 - Rapport 0 ou 15: point mort (N) ou marche arriere (R), distingues par le drapeau InGear (a verifier en jeu)
 //                    PIT Motif recherché: vitesse stabilisée (limiteur) -> arrêt moteur au ralenti -> vitesse stabilisée.
+// 14/10/2026 15:59 - Suppression de tyreRadiusMm (zone RADIUS retiree du theme Radar : le rayon n'evolue pas avec l'usure)
+// 14/10/2026 16:21 - Pression turbo (boost - 1, en bar, negative possible) et maximum de la course dans DashboardState, simulee en mode demo
+// 14/10/2026 16:49 - Marche arriere: rapport 0 = R, 15 = N (le drapeau InGear ne distinguait pas R de N) ; historique ramene a 7 tours
+// 16/10/2026 14:08 - Pit: suppression du test du regime moteur a l'arret (ralenti de plusieurs milliers de tr/min sur certaines voitures)
 #ifndef __SHCUSTOMPROTOCOL_H__
 #define __SHCUSTOMPROTOCOL_H__
 
@@ -222,16 +226,30 @@ struct DashboardState
 	String brake = "0";
 	String lapInvalidated = "False";
 	float tyreTemperatures[4] = {NAN, NAN, NAN, NAN};
-	float tyreRadiusMm[4] = {NAN, NAN, NAN, NAN};
 	String remainingTime = "--:--";	
+	// Pression turbo relative en bar (negative en deceleration) ; NAN = voiture sans turbo.
+	float turboBoostBar = NAN;
+	// Plus haute pression vue depuis le debut de la course (echelle de la barre du theme Radar).
+	float turboBoostMaxBar = 0.0f;
 	String gameRunning = "False";
 	// Historique glissant des derniers tours (affiche par le bandeau du theme Radar).
-	static constexpr int LAP_HISTORY_SIZE = 8;
+	static constexpr int LAP_HISTORY_SIZE = 7;
 	int lapHistoryCount = 0;
 	int lapHistoryNumber[LAP_HISTORY_SIZE] = {};
 	int32_t lapHistoryMs[LAP_HISTORY_SIZE] = {};
 	bool lapHistoryPit[LAP_HISTORY_SIZE] = {};
 	int32_t bestLapMs = -1;
+
+	void updateTurbo(bool hasTurbo, float boostBar)
+	{
+		if (!hasTurbo || !isfinite(boostBar))
+		{
+			turboBoostBar = NAN;
+			return;
+		}
+		turboBoostBar = boostBar;
+		if (boostBar > turboBoostMaxBar) turboBoostMaxBar = boostBar;
+	}
 
 	void clearLapHistory()
 	{
@@ -783,8 +801,6 @@ public:
 	static constexpr float LAP_PIT_MIN_KMH = 58.0f;			// plage de vitesse acceptée pour les phases 1 et 3
 	static constexpr float LAP_PIT_MAX_KMH = 61.0f;
 	static constexpr float LAP_PIT_STOPPED_KMH = 1.0f;		// en dessous: arrêt (phase 2)
-	static constexpr float LAP_PIT_IDLE_RPM_MIN = 500.0f;	// plage du ralenti à l'arrêt (800 observé), dépend de la voiture
-	static constexpr float LAP_PIT_IDLE_RPM_MAX = 1000.0f;	
 	static constexpr uint32_t LAP_PIT_STOP_MS = 1500;		// durée minimale de l'arrêt
 	static constexpr uint32_t LAP_PIT_APPROACH_TIMEOUT_MS = 10000;	// délai max entre phase 1 et arrêt
 	static constexpr uint32_t LAP_PIT_LEAVE_TIMEOUT_MS = 15000;		// délai max entre arrêt et phase 3
@@ -866,17 +882,12 @@ public:
 		case PIT_STOPPED:	// phase 2: arrêt, moteur au ralenti
 			if (speedKmh < LAP_PIT_STOPPED_KMH)
 			{
-				if (rpm >= LAP_PIT_IDLE_RPM_MIN && rpm <= LAP_PIT_IDLE_RPM_MAX)
-				{
-					if (t.idleSince == 0)
-						t.idleSince = now;
-					const uint32_t idleMs = now - t.idleSince;
-					if (idleMs > t.longestIdleMs)
-						t.longestIdleMs = idleMs;
-				}
-				else
-					t.idleSince = 0;	// régime hors ralenti: on recompte
-			}
+			// Seule la vitesse nulle compte (le regime au ralenti varie trop selon les voitures).
+			if (t.idleSince == 0)
+				t.idleSince = now;
+			const uint32_t idleMs = now - t.idleSince;
+			if (idleMs > t.longestIdleMs)
+				t.longestIdleMs = idleMs;			}
 			else
 			{
 				// La voiture repart: l'arrêt n'est valide que s'il y a eu assez de ralenti continu.
@@ -916,6 +927,7 @@ public:
 		{
 			clearLapHistory();
 			lapTracker = LapTracker();
+			turboBoostMaxBar = 0.0f;
 		}
 
 		// Fin de tour: lapCount augmente (le faux passage 0 -> 1 du départ est ignoré).
@@ -974,11 +986,12 @@ public:
 
 		const int currentGear =
 			gt7Telem.getCurrentGearFromByte();
-		const bool gearEngaged = (static_cast<uint16_t>(data.flags) & (1U << 3)) != 0;
 
-		gear = (currentGear == 0 || currentGear == 15)
-				   ? (gearEngaged ? "R" : "N")
-				   : String(currentGear);
+		// Codage GT7 du rapport engage: 0 = marche arriere, 15 = point mort.
+		// (Le drapeau InGear restait a 0 en marche arriere: R s'affichait N.)
+		gear = currentGear == 0    ? "R"
+			   : currentGear == 15 ? "N"
+								   : String(currentGear);
 
 		// RPM Bar
 		const float rpm = data.EngineRPM;
@@ -1112,7 +1125,6 @@ public:
 		for (int tyreIndex = 0; tyreIndex < 4; tyreIndex++)
 		{
 			tyreTemperatures[tyreIndex] = data.tyreTemp[tyreIndex];
-			tyreRadiusMm[tyreIndex] = data.tyreRadius[tyreIndex] * 1000.0f;
 		}
 
 		// 由獨立 library 估算剩餘油量圈數。
@@ -1158,6 +1170,10 @@ public:
 		gt7CarOnTrack = (flags & (1U << 0)) != 0;
 
 		updateLapHistory(currentLap, data.lastLaptime, data.bestLaptime, data.speed, data.EngineRPM, flags);
+
+		// Pression turbo: GT7 envoie boost decale de +1 (1.0 = pression atmospherique).
+		updateTurbo((flags & static_cast<uint16_t>(SimulatorFlags::HasTurbo)) != 0,
+			data.boost - 1.0f);
 
 		const bool tcsIsActive = (flags & (1U << 11)) != 0;
 
@@ -1477,14 +1493,15 @@ public:
 		for (int i = 0; i < 4; ++i)
 		{
 			tyreTemperatures[i] = 70.0f + 20.0f * sinf(now / 2500.0f + i);
-			tyreRadiusMm[i] = 330.0f + 0.5f * i + 0.3f * sinf(now / 4000.0f + i);
 		}
 		remainingTime = "18:42";
+		// Turbo: depression au freinage, pression qui monte avec le regime ailleurs.
+		updateTurbo(true, braking ? -0.6f : 0.1f + 1.1f * gearPhase);
 		
 		// Historique des tours simule: un tour toutes les 12 s, un tour sur 5 "au stand".
 		const uint32_t demoLap = now / 12000;
 		clearLapHistory();
-		const uint32_t firstDemoLap = demoLap > 8 ? demoLap - 7 : 1;
+		const uint32_t firstDemoLap = demoLap > LAP_HISTORY_SIZE ? demoLap - (LAP_HISTORY_SIZE - 1) : 1;
 		for (uint32_t lap = firstDemoLap; lap <= demoLap; ++lap)
 		{
 			const bool demoPit = (lap % 5 == 0);
