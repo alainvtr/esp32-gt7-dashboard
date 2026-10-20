@@ -10,6 +10,7 @@
 // 14/10/2026 16:21 - Pression turbo (boost - 1, en bar, negative possible) et maximum de la course dans DashboardState, simulee en mode demo
 // 14/10/2026 16:49 - Marche arriere: rapport 0 = R, 15 = N (le drapeau InGear ne distinguait pas R de N) ; historique ramene a 7 tours
 // 16/10/2026 14:08 - Pit: suppression du test du regime moteur a l'arret (ralenti de plusieurs milliers de tr/min sur certaines voitures)
+// 16/10/2026 14:37 - LED RGB (carte 3248S035) : clignotement bleu a l'approche de minAlertRPM quand le regime monte ; rpmAlertMinRpm dans DashboardState ; remise en forme de la phase d'arret du pit
 #ifndef __SHCUSTOMPROTOCOL_H__
 #define __SHCUSTOMPROTOCOL_H__
 
@@ -35,6 +36,9 @@
 #include <BleGamepad.h> // libreria bluetooth
 #include <GT7DerivedMetrics.h>
 #include "version.h"
+#if defined(BOARD_RGB_LED_BLUE_PIN)
+#include "dashboard/ShiftLed.h"
+#endif
 
 static LGFX tft;
 
@@ -190,6 +194,7 @@ struct DashboardState
 	int prev_rpmPercent = 50;
 	int rpmRedLineSetting = 90;
 	int engineRpm = 0;
+	int rpmAlertMinRpm = 0;		// seuil d'alerte du jeu (minAlertRPM) en tr/min, 0 = inconnu
 	bool rpmAlertRangeValid = false;
 	bool revLimitAlertActive = false;
 	bool revLimitAlertWasActive = false;
@@ -417,6 +422,9 @@ private:
 
 	// 記錄上一筆 GT7 執行狀態，用來偵測 False -> True
 	bool previousGameRunning = false;
+#if defined(BOARD_RGB_LED_BLUE_PIN)
+	ShiftLed shiftLed;
+#endif
 
 	// 避免第一筆資料被誤判為狀態切換
 	bool gameRunningInitialized = false;
@@ -763,6 +771,10 @@ public:
 	void setup()
 	{
 		tft.init();
+#if defined(BOARD_RGB_LED_BLUE_PIN)
+		shiftLed.begin(BOARD_RGB_LED_RED_PIN, BOARD_RGB_LED_GREEN_PIN,
+			BOARD_RGB_LED_BLUE_PIN, BOARD_RGB_LED_ACTIVE_LOW);
+#endif
 		loadDashboardTheme();
 		prepareThemePreviewData();
 		tft.setRotation(DASHBOARD_DISPLAY_ROTATION);
@@ -879,15 +891,16 @@ public:
 			else if (now - t.phaseSince > LAP_PIT_APPROACH_TIMEOUT_MS)
 				setPitPhase(PIT_IDLE, speedKmh, rpm);
 			break;
-		case PIT_STOPPED:	// phase 2: arrêt, moteur au ralenti
+		case PIT_STOPPED:	// phase 2: arrêt (vitesse nulle, le régime n'est pas testé)
 			if (speedKmh < LAP_PIT_STOPPED_KMH)
 			{
-			// Seule la vitesse nulle compte (le regime au ralenti varie trop selon les voitures).
-			if (t.idleSince == 0)
-				t.idleSince = now;
-			const uint32_t idleMs = now - t.idleSince;
-			if (idleMs > t.longestIdleMs)
-				t.longestIdleMs = idleMs;			}
+				// Seule la vitesse nulle compte (le regime au ralenti varie trop selon les voitures).
+				if (t.idleSince == 0)
+					t.idleSince = now;
+				const uint32_t idleMs = now - t.idleSince;
+				if (idleMs > t.longestIdleMs)
+					t.longestIdleMs = idleMs;
+			}
 			else
 			{
 				// La voiture repart: l'arrêt n'est valide que s'il y a eu assez de ralenti continu.
@@ -1019,6 +1032,7 @@ public:
 				1,
 				99)
 			: 90;
+		rpmAlertMinRpm = rpmAlertRangeValid ? static_cast<int>(lroundf(redLineRpm)) : 0;
 
 		// 圈速：currentLap 只有使用 C Packet 時才有值
 		currentLapTime = formatLapTimeMs(data.currentLap);
@@ -1443,6 +1457,7 @@ public:
 		rpmRedLineSetting = 78;
 		rpmAlertRangeValid = true;
 		engineRpm = rpmPercent * 80;
+		rpmAlertMinRpm = rpmRedLineSetting * 80;	// meme echelle que engineRpm
 		revLimitAlertActive = rpmPercent >= 97;
 
 		gear = String(gearIndex);
@@ -1545,6 +1560,12 @@ public:
 		readGT7Wifi();
 		updateGT7GameState();
 #endif
+#endif
+
+#if defined(BOARD_RGB_LED_BLUE_PIN)
+		// LED eteinte hors course (pas de telemetrie) et ecran en veille.
+		shiftLed.update(engineRpm, rpmAlertMinRpm,
+			previousGameRunning && !screenSleeping, millis());
 #endif
 
 		/*

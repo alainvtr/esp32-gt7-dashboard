@@ -1,6 +1,8 @@
 // 21/09/2026 14:54 - Nouveau profil LovyanGFX pour la carte Sunton ESP32-3248S035R (ST7796 320x480 + tactile resistif XPT2046), ajoute pour pouvoir utiliser cette carte sans modifier les themes.
 // 02/10/2026 16:33 - DASHBOARD_TOUCH_ROTATION_OFFSET passe de 6 a 0 : le tactile etait tourne de 180 degres par rapport a l'affichage sur la carte 3248S035R.
 // 02/10/2026 16:46 - DASHBOARD_TOUCH_ROTATION_OFFSET passe de 0 a 4 : avec 0 le haut/bas du tactile restait inverse (il faut inverser X et Y, rotation 7 dans LovyanGFX).
+// 16/10/2026 14:37 - Broches de la LED RGB de la carte (R 4, V 16, B 17, allumee a l'etat bas) pour le voyant d'approche du seuil d'alerte regime
+// 20/10/2026 16:49 - LED RGB ressoudee tournee de 180 degres (montee a l'envers d'origine) : vert et bleu echanges, V 17 et B 16
 #pragma once
 
 #define LGFX_USE_V1
@@ -26,6 +28,15 @@
 // Si le tactile est inverse/miroir : ajuster DASHBOARD_TOUCH_ROTATION_OFFSET (0 a 7).
 static constexpr uint8_t DASHBOARD_DISPLAY_ROTATION = 3;
 static constexpr uint8_t DASHBOARD_TOUCH_ROTATION_OFFSET = 4;
+
+// LED RGB de la carte (anode commune : une couleur s'allume quand sa broche est a 0).
+// Si la LED reste allumee quand elle devrait etre eteinte : passer ACTIVE_LOW a 0.
+// Sur la carte d'Alain, la LED etait soudee a l'envers (anodes cote IO) : elle a ete
+// tournee de 180 degres, ce qui a echange les puces verte et bleue (rouge inchange).
+#define BOARD_RGB_LED_RED_PIN 4
+#define BOARD_RGB_LED_GREEN_PIN 17
+#define BOARD_RGB_LED_BLUE_PIN 16
+#define BOARD_RGB_LED_ACTIVE_LOW 1
 
 class LGFX : public lgfx::LGFX_Device{
   lgfx::Panel_ST7796  _panel_instance;
