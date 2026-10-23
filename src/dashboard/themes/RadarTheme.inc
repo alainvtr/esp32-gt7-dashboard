@@ -1,3 +1,4 @@
+// 21/10/2026 10:51 - Cellule HANDLING (colonne droite, sous CURRENT) : trace de comportement sur 3 lignes en petite police (lacet, braquage, ecarts de vitesse des roues)
 // 16/10/2026 14:08 - Libelles REM LAPS, REM FUEL, POSITION ; km/h descendu de 3 px en police 2 (meme taille que GEAR et RPM)
 // 14/10/2026 16:49 - Valeurs des colonnes plus grosses (LAP et POS alignes a droite), barre ABS/TCS/DELTA/TYRE TEMP moins haute de 5 px, bandeau des tours plus haut de 5 px, 7 tours au lieu de 8 en plus gros
 // 14/10/2026 16:21 - Cellule TURBO (colonne gauche, sous PEDALS) : pression en bar + barre avec point 0 (depression a gauche, pression a droite)
@@ -50,6 +51,13 @@ static constexpr float TURBO_BAR_ZERO_FRACTION = 0.25f;
 static constexpr float TURBO_VACUUM_SCALE_BAR = 1.0f;
 // Pleine echelle a droite: le maximum de la course, jamais moins que cette valeur.
 static constexpr float TURBO_MIN_BOOST_SCALE_BAR = 0.5f;
+
+// Cellule HANDLING: colonne droite, sous CURRENT. Trace brute sur 3 lignes en
+// police 1 (6x8 px, 13 caracteres sur la largeur de la colonne).
+static constexpr int HANDLING_CELL = 4;
+static constexpr int HANDLING_LINE_DY = 17;
+static constexpr int HANDLING_LINE_STEP = 9;
+static constexpr int HANDLING_LINE_HEIGHT = 9;
 
 static constexpr int RADAR_CENTER_X = 240;
 static constexpr int RADAR_CENTER_Y = 123;
@@ -648,6 +656,7 @@ static constexpr int LAP_STRIP_CELLS_X = LAP_STRIP_X +
 			tft.drawString("REM LAPS", rightLabelX, cellY(1) + COLUMN_LABEL_DY, 1);
 			tft.drawString("REM TIME", rightLabelX, cellY(2) + COLUMN_LABEL_DY, 1);
 			tft.drawString("CURRENT", rightLabelX, cellY(3) + COLUMN_LABEL_DY, 1);
+			tft.drawString("HANDLING", rightLabelX, cellY(HANDLING_CELL) + COLUMN_LABEL_DY, 1);
 			tft.setTextSize(1.0f);
 			tft.setTextDatum(ML_DATUM);
 			tft.drawString("bar", labelX + COLUMN_CONTENT_WIDTH - TURBO_UNIT_WIDTH + 3,
@@ -688,6 +697,16 @@ static constexpr int LAP_STRIP_CELLS_X = LAP_STRIP_X +
 			state.lapInvalidated == "True" ? red : TFT_WHITE,
 			2, MR_DATUM, redraw, currentSprite, currentSpriteCreated,
 			COLUMN_VALUE_SCALE, COLUMN_VALUE_SCALE);
+
+		const String *const handlingLines[3] = {
+			&state.handling.line1, &state.handling.line2, &state.handling.line3};
+		static const char *const handlingIds[3] = {
+			"radarHandling1", "radarHandling2", "radarHandling3"};
+		for (int i = 0; i < 3; ++i)
+			drawRadarValue(rightValueX,
+				cellY(HANDLING_CELL) + HANDLING_LINE_DY + i * HANDLING_LINE_STEP,
+				COLUMN_CONTENT_WIDTH, HANDLING_LINE_HEIGHT, *handlingLines[i],
+				handlingIds[i], TFT_WHITE, 1, ML_DATUM, redraw);
 
 		drawRadarTyres(state, redraw, tyreSprite, tyreSpriteCreated);
 		drawRadarLapStrip(state, redraw);

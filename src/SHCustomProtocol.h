@@ -11,6 +11,7 @@
 // 14/10/2026 16:49 - Marche arriere: rapport 0 = R, 15 = N (le drapeau InGear ne distinguait pas R de N) ; historique ramene a 7 tours
 // 16/10/2026 14:08 - Pit: suppression du test du regime moteur a l'arret (ralenti de plusieurs milliers de tr/min sur certaines voitures)
 // 16/10/2026 14:37 - LED RGB (carte 3248S035) : clignotement bleu a l'approche de minAlertRPM quand le regime monte ; rpmAlertMinRpm dans DashboardState ; remise en forme de la phase d'arret du pit
+// 21/10/2026 10:51 - Trace de comportement (lacet mesure / neutre, braquage, ecarts de vitesse des roues) dans DashboardState.handling, alimentee par la telemetrie et simulee en mode demo
 #ifndef __SHCUSTOMPROTOCOL_H__
 #define __SHCUSTOMPROTOCOL_H__
 
@@ -36,6 +37,7 @@
 #include <BleGamepad.h> // libreria bluetooth
 #include <GT7DerivedMetrics.h>
 #include "version.h"
+#include "dashboard/HandlingTrace.h"
 #if defined(BOARD_RGB_LED_BLUE_PIN)
 #include "dashboard/ShiftLed.h"
 #endif
@@ -236,6 +238,8 @@ struct DashboardState
 	float turboBoostBar = NAN;
 	// Plus haute pression vue depuis le debut de la course (echelle de la barre du theme Radar).
 	float turboBoostMaxBar = 0.0f;
+	// Trace de comportement (sous/survirage, DGL) : 3 lignes affichees par le theme Radar.
+	HandlingTrace handling;
 	String gameRunning = "False";
 	// Historique glissant des derniers tours (affiche par le bandeau du theme Radar).
 	static constexpr int LAP_HISTORY_SIZE = 7;
@@ -809,9 +813,9 @@ public:
 #define DASHBOARD_PIT_DEBUG 0	// 1 = trace les changements de phase sur le port série
 #endif
 	static constexpr float LAP_PIT_STABLE_BAND_KMH = 2.0f;	// tolérance pour dire "vitesse stable"
-	static constexpr uint32_t LAP_PIT_STABLE_MS = 800;		// durée minimale des phases 1 et 3
+	static constexpr uint32_t LAP_PIT_STABLE_MS = 1000;		// durée minimale des phases 1 et 3
 	static constexpr float LAP_PIT_MIN_KMH = 58.0f;			// plage de vitesse acceptée pour les phases 1 et 3
-	static constexpr float LAP_PIT_MAX_KMH = 61.0f;
+	static constexpr float LAP_PIT_MAX_KMH = 81.0f;
 	static constexpr float LAP_PIT_STOPPED_KMH = 1.0f;		// en dessous: arrêt (phase 2)
 	static constexpr uint32_t LAP_PIT_STOP_MS = 1500;		// durée minimale de l'arrêt
 	static constexpr uint32_t LAP_PIT_APPROACH_TIMEOUT_MS = 10000;	// délai max entre phase 1 et arrêt
@@ -1166,6 +1170,10 @@ public:
 		const int brakePercent =
 			constrain(static_cast<int>(data.brake * 100.0f / 255.0f), 0, 100);
 
+		handling.update({data.speed, data.angularVelocity, data.wheelSteeringAngle,
+			data.wheelBase, data.wheelRPS, data.tyreRadius,
+			throttlePercent, brakePercent}, millis());
+
 		tcLevel = String(throttlePercent);
 		absLevel = String(brakePercent);
 		// GT7 exposes both driver pedal position and the filtered output actually
@@ -1512,6 +1520,29 @@ public:
 		remainingTime = "18:42";
 		// Turbo: depression au freinage, pression qui monte avec le regime ailleurs.
 		updateTurbo(true, braking ? -0.6f : 0.1f + 1.1f * gearPhase);
+
+		// Comportement: virage gauche/droite toutes les 8 s, voiture qui alterne
+		// sous-virage (lacet a 80 % du neutre) et survirage (120 %).
+		{
+			const float demoSpeedMs = (40.0f + (gearIndex - 1) * 38.0f + gearPhase * 38.0f) / 3.6f;
+			const float demoWheelBase = 2.65f;
+			const float demoSteer = 0.08f * sinf(now / 1273.0f);
+			const float demoYawRatio = 1.0f + 0.2f * sinf(now / 4000.0f);
+			const float demoAngular[3] = {0.0f,
+				demoYawRatio * demoSpeedMs * tanf(demoSteer) / demoWheelBase, 0.0f};
+			const float demoSteerAngles[2] = {demoSteer, demoSteer};
+			const float demoRadius[4] = {0.33f, 0.33f, 0.34f, 0.34f};
+			// Ecart naturel en virage (voie ~1,6 m) + patinage de la roue arriere interieure.
+			const float trackSpeedMs = 0.8f * demoAngular[1];
+			const float spin = (throttle > 90 && gearPhase < 0.3f) ? 2.0f : 0.0f;
+			const float demoWheelRps[4] = {
+				(demoSpeedMs - trackSpeedMs) / demoRadius[0],
+				(demoSpeedMs + trackSpeedMs) / demoRadius[1],
+				(demoSpeedMs - trackSpeedMs + spin) / demoRadius[2],
+				(demoSpeedMs + trackSpeedMs) / demoRadius[3]};
+			handling.update({demoSpeedMs, demoAngular, demoSteerAngles, demoWheelBase,
+				demoWheelRps, demoRadius, throttle, brakeInput}, now);
+		}
 		
 		// Historique des tours simule: un tour toutes les 12 s, un tour sur 5 "au stand".
 		const uint32_t demoLap = now / 12000;
