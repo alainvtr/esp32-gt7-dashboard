@@ -1,3 +1,7 @@
+// 23/10/2026 14:37 - Colonnes elargies de 10 px vers le centre (90 -> 100 px, contenu 78 -> 88 px) ; lignes HANDLING elargies d'autant (police 1 x1,1 en largeur), en-tetes Y/N et R/F derives de la largeur des caracteres
+// 23/10/2026 14:28 - COLUMN_FRAME_HEIGHT calcule sans appeler cellY() : ce fichier est inclus dans la classe SHCustomProtocol, ou une fonction membre constexpr n'est pas utilisable dans l'initialisation d'une autre constante membre
+// 23/10/2026 00:14 - Hauteurs de cellules differenciees : 3 cellules du haut 44 px (valeur remontee de 3 px), 4e inchangee (47 px), 5e 56 px ; lignes HANDLING plus hautes (police 1 etiree verticalement x1,4)
+// 23/10/2026 00:06 - Cellule HANDLING : en-tetes Y/N et R/F, une ligne par phase de virage (E/M/S) coloree selon l'equilibre (bleu sous-virage, blanc neutre, rouge survirage, gris sans donnee)
 // 21/10/2026 10:51 - Cellule HANDLING (colonne droite, sous CURRENT) : trace de comportement sur 3 lignes en petite police (lacet, braquage, ecarts de vitesse des roues)
 // 16/10/2026 14:08 - Libelles REM LAPS, REM FUEL, POSITION ; km/h descendu de 3 px en police 2 (meme taille que GEAR et RPM)
 // 14/10/2026 16:49 - Valeurs des colonnes plus grosses (LAP et POS alignes a droite), barre ABS/TCS/DELTA/TYRE TEMP moins haute de 5 px, bandeau des tours plus haut de 5 px, 7 tours au lieu de 8 en plus gros
@@ -10,7 +14,9 @@
 // 06/10/2026 16:37 - Pneus: temperatures en gros chiffres colores avec degre (plus de barres), graduations RPM derivees du rayon du cadran, zone DELTA a la taille du texte, bandeau horizontal des derniers tours
 // Layout 480x320 : trois colonnes gauche / centre / droite.
 static constexpr int SCREEN_WIDTH = 480;
-static constexpr int COLUMN_WIDTH = 90;
+// 100 px: le cadran RPM (rayon de cadre 118 autour de x = 240) commence a x = 122,
+// il reste 22 px d'espace entre chaque colonne et le cadran.
+static constexpr int COLUMN_WIDTH = 100;
 static constexpr int COLUMN_PADDING = 6;
 static constexpr int COLUMN_CONTENT_WIDTH = COLUMN_WIDTH - 2 * COLUMN_PADDING;
 
@@ -19,18 +25,46 @@ static constexpr int CENTER_COL_X = 160;
 static constexpr int RIGHT_X = SCREEN_WIDTH - COLUMN_WIDTH;
 static constexpr int TOP_Y = 0;
 
-// Colonnes laterales: 5 cellules de 47 px (le cadre s'arrete a y = 238, avant la barre du bas).
-static constexpr int COLUMN_CELL_HEIGHT = 47;
+// Colonnes laterales: 5 cellules, 235 px au total (le cadre s'arrete a y = 238, avant
+// la barre du bas). Les 3 cellules du haut (une seule valeur) sont plus basses pour
+// donner de la place a la 5e (TURBO a gauche, HANDLING a droite) :
+// 44 + 44 + 44 + 47 + 56.
 static constexpr int COLUMN_CELL_COUNT = 5;
-static constexpr int COLUMN_FRAME_HEIGHT = COLUMN_CELL_COUNT * COLUMN_CELL_HEIGHT + 3;
+static constexpr int COLUMN_TOP_CELLS = 3;
+static constexpr int COLUMN_TOP_CELL_HEIGHT = 44;
+static constexpr int COLUMN_CELL_HEIGHT = 47;	// 4e cellule (PEDALS / CURRENT)
+static constexpr int COLUMN_LAST_CELL_HEIGHT = 56;	// 5e cellule (TURBO / HANDLING)
 // Libelles et valeurs: meme echelle dans toutes les cellules.
 static constexpr float COLUMN_LABEL_SCALE = 1.4f;
-// 1.35 = maximum pour qu'un temps "1:24.631" (56 px en police 2) tienne dans 78 px.
+// 1.35: un temps "1:24.631" (56 px en police 2) occupe 76 px sur les 88 disponibles.
 static constexpr float COLUMN_VALUE_SCALE = 1.35f;
 static constexpr int COLUMN_LABEL_DY = 4;
 static constexpr int COLUMN_VALUE_DY = 18;
+// Cellules du haut: valeur remontee de 3 px (cellule moins haute d'autant).
+static constexpr int COLUMN_TOP_VALUE_DY = COLUMN_VALUE_DY - 3;
 static constexpr int COLUMN_VALUE_HEIGHT = 27;
-static constexpr int cellY(int index) { return TOP_Y + index * COLUMN_CELL_HEIGHT; }
+// Fonctions recursives (C++11: pas de boucle dans une fonction constexpr).
+static constexpr int cellHeight(int index)
+{
+	return index < COLUMN_TOP_CELLS ? COLUMN_TOP_CELL_HEIGHT
+		: (index == COLUMN_CELL_COUNT - 1 ? COLUMN_LAST_CELL_HEIGHT : COLUMN_CELL_HEIGHT);
+}
+static constexpr int cellY(int index)
+{
+	return index <= 0 ? TOP_Y : cellY(index - 1) + cellHeight(index - 1);
+}
+// Position de la valeur d'une cellule (sous son libelle).
+static constexpr int cellValueY(int index)
+{
+	return cellY(index) + (index < COLUMN_TOP_CELLS ? COLUMN_TOP_VALUE_DY : COLUMN_VALUE_DY);
+}
+// Hauteur totale des 5 cellules + 3 px de bord. Calculee directement : ce fichier est
+// inclus DANS la classe SHCustomProtocol, et une fonction membre constexpr (cellY...)
+// ne peut pas servir a initialiser une autre constante membre tant que la classe n'est
+// pas complete (elle reste utilisable partout ailleurs, dans le corps des fonctions).
+static constexpr int COLUMN_FRAME_HEIGHT = COLUMN_TOP_CELLS * COLUMN_TOP_CELL_HEIGHT +
+	(COLUMN_CELL_COUNT - COLUMN_TOP_CELLS - 1) * COLUMN_CELL_HEIGHT +
+	COLUMN_LAST_CELL_HEIGHT + 3;
 
 // Cellule PEDALS: colonne gauche, sous BEST.
 static constexpr int PEDALS_CELL = 3;
@@ -52,12 +86,26 @@ static constexpr float TURBO_VACUUM_SCALE_BAR = 1.0f;
 // Pleine echelle a droite: le maximum de la course, jamais moins que cette valeur.
 static constexpr float TURBO_MIN_BOOST_SCALE_BAR = 0.5f;
 
-// Cellule HANDLING: colonne droite, sous CURRENT. Trace brute sur 3 lignes en
-// police 1 (6x8 px, 13 caracteres sur la largeur de la colonne).
+// Cellule HANDLING: colonne droite, sous CURRENT. Une ligne par phase de virage
+// en police 1 (6x8 px a l'echelle 1, 13 caracteres au plus) :
+// "E 0.92 +0.10" = phase, equilibre Y/N, blocage arriere R/F.
+// Les en-tetes Y/N et R/F sont places au-dessus de leurs colonnes de valeurs.
 static constexpr int HANDLING_CELL = 4;
+static constexpr int HANDLING_MAX_CHARS = 13;
+static constexpr int FONT1_CHAR_WIDTH = 6;
+// Police 1 agrandie: 13 x 6 x 1,1 = 86 px de large (sur 88), 8 x 1,4 = 11 px de haut.
+static constexpr float HANDLING_LINE_SCALE_X = 1.1f;
+static constexpr float HANDLING_LINE_SCALE_Y = 1.4f;
 static constexpr int HANDLING_LINE_DY = 17;
-static constexpr int HANDLING_LINE_STEP = 9;
-static constexpr int HANDLING_LINE_HEIGHT = 9;
+static constexpr int HANDLING_LINE_STEP = 13;
+static constexpr int HANDLING_LINE_HEIGHT = 12;
+// En-tetes alignes sur le 3e caractere (Y/N) et le 8e (R/F) des lignes.
+static constexpr int HANDLING_HEADER_BALANCE_DX =
+	static_cast<int>(2 * FONT1_CHAR_WIDTH * HANDLING_LINE_SCALE_X) + 1;
+static constexpr int HANDLING_HEADER_LOCK_DX =
+	static_cast<int>(7 * FONT1_CHAR_WIDTH * HANDLING_LINE_SCALE_X) + 1;
+static_assert(HANDLING_MAX_CHARS * FONT1_CHAR_WIDTH * HANDLING_LINE_SCALE_X + 1 <= COLUMN_CONTENT_WIDTH,
+	"lignes HANDLING trop larges pour la colonne");
 
 static constexpr int RADAR_CENTER_X = 240;
 static constexpr int RADAR_CENTER_Y = 123;
@@ -268,7 +316,7 @@ static constexpr int LAP_STRIP_CELLS_X = LAP_STRIP_X +
 			if (appliedWidth > 0)
 				pedalSprite.fillRect(11, y + 1, appliedWidth, 5, applied);
 		}
-		pedalSprite.pushSprite(LEFT_X + COLUMN_PADDING, cellY(PEDALS_CELL) + COLUMN_VALUE_DY);
+		pedalSprite.pushSprite(LEFT_X + COLUMN_PADDING, cellValueY(PEDALS_CELL));
 		prevData["radarPedals"] = cacheState;
 		releaseSpriteAfterThemePreview(pedalSprite, spriteCreated);
 	}
@@ -656,7 +704,10 @@ static constexpr int LAP_STRIP_CELLS_X = LAP_STRIP_X +
 			tft.drawString("REM LAPS", rightLabelX, cellY(1) + COLUMN_LABEL_DY, 1);
 			tft.drawString("REM TIME", rightLabelX, cellY(2) + COLUMN_LABEL_DY, 1);
 			tft.drawString("CURRENT", rightLabelX, cellY(3) + COLUMN_LABEL_DY, 1);
-			tft.drawString("HANDLING", rightLabelX, cellY(HANDLING_CELL) + COLUMN_LABEL_DY, 1);
+			tft.drawString("Y/N", rightLabelX + HANDLING_HEADER_BALANCE_DX,
+				cellY(HANDLING_CELL) + COLUMN_LABEL_DY, 1);
+			tft.drawString("R/F", rightLabelX + HANDLING_HEADER_LOCK_DX,
+				cellY(HANDLING_CELL) + COLUMN_LABEL_DY, 1);
 			tft.setTextSize(1.0f);
 			tft.setTextDatum(ML_DATUM);
 			tft.drawString("bar", labelX + COLUMN_CONTENT_WIDTH - TURBO_UNIT_WIDTH + 3,
@@ -674,39 +725,48 @@ static constexpr int LAP_STRIP_CELLS_X = LAP_STRIP_X +
 		drawRadarRpm(state, redraw);
 		const int valueX = LEFT_X + COLUMN_PADDING;
 		const int rightValueX = RIGHT_X + COLUMN_PADDING;
-		drawRadarLapValue(valueX, cellY(0) + COLUMN_VALUE_DY, COLUMN_CONTENT_WIDTH,
+		drawRadarLapValue(valueX, cellValueY(0), COLUMN_CONTENT_WIDTH,
 			COLUMN_VALUE_HEIGHT, state.tyrePressureRearLeft, redraw);
-		drawRadarValue(valueX, cellY(1) + COLUMN_VALUE_DY, COLUMN_CONTENT_WIDTH,
+		drawRadarValue(valueX, cellValueY(1), COLUMN_CONTENT_WIDTH,
 			COLUMN_VALUE_HEIGHT, state.tyrePressureFrontRight, "radarPos",
 			TFT_WHITE, 2, MR_DATUM, redraw, COLUMN_VALUE_SCALE, COLUMN_VALUE_SCALE);
-		drawRadarValue(valueX, cellY(2) + COLUMN_VALUE_DY, COLUMN_CONTENT_WIDTH,
+		drawRadarValue(valueX, cellValueY(2), COLUMN_CONTENT_WIDTH,
 			COLUMN_VALUE_HEIGHT, radarShortLapTime(state.bestLapTime),
 			"radarBest", TFT_WHITE, 2, ML_DATUM, redraw,
 			COLUMN_VALUE_SCALE, COLUMN_VALUE_SCALE);
-		drawRadarValue(rightValueX, cellY(0) + COLUMN_VALUE_DY, COLUMN_CONTENT_WIDTH,
+		drawRadarValue(rightValueX, cellValueY(0), COLUMN_CONTENT_WIDTH,
 			COLUMN_VALUE_HEIGHT, state.fuelDisplayValue, "radarFuel",
 			TFT_WHITE, 2, MR_DATUM, redraw, COLUMN_VALUE_SCALE, COLUMN_VALUE_SCALE);
-		drawRadarValue(rightValueX, cellY(1) + COLUMN_VALUE_DY, COLUMN_CONTENT_WIDTH,
+		drawRadarValue(rightValueX, cellValueY(1), COLUMN_CONTENT_WIDTH,
 			COLUMN_VALUE_HEIGHT, state.tyrePressureFrontLeft, "radarRem",
 			TFT_WHITE, 2, MR_DATUM, redraw, COLUMN_VALUE_SCALE, COLUMN_VALUE_SCALE);
-		drawRadarValue(rightValueX, cellY(2) + COLUMN_VALUE_DY, COLUMN_CONTENT_WIDTH,
+		drawRadarValue(rightValueX, cellValueY(2), COLUMN_CONTENT_WIDTH,
 			COLUMN_VALUE_HEIGHT, state.remainingTime, "radarRemTime",
 			TFT_WHITE, 2, MR_DATUM, redraw, COLUMN_VALUE_SCALE, COLUMN_VALUE_SCALE);
-		drawRadarValueBuffered(rightValueX, cellY(3) + COLUMN_VALUE_DY, COLUMN_CONTENT_WIDTH,
+		drawRadarValueBuffered(rightValueX, cellValueY(3), COLUMN_CONTENT_WIDTH,
 			COLUMN_VALUE_HEIGHT, radarShortLapTime(state.currentLapTime), "radarCurrent",
 			state.lapInvalidated == "True" ? red : TFT_WHITE,
 			2, MR_DATUM, redraw, currentSprite, currentSpriteCreated,
 			COLUMN_VALUE_SCALE, COLUMN_VALUE_SCALE);
 
-		const String *const handlingLines[3] = {
-			&state.handling.line1, &state.handling.line2, &state.handling.line3};
-		static const char *const handlingIds[3] = {
+		static const char *const handlingIds[HandlingTrace::PHASE_COUNT] = {
 			"radarHandling1", "radarHandling2", "radarHandling3"};
-		for (int i = 0; i < 3; ++i)
+		for (int i = 0; i < HandlingTrace::PHASE_COUNT; ++i)
+		{
+			uint16_t handlingColor = muted;
+			switch (state.handling.tendency[i])
+			{
+			case HandlingTrace::TENDENCY_UNDER: handlingColor = blue; break;
+			case HandlingTrace::TENDENCY_NEUTRAL: handlingColor = TFT_WHITE; break;
+			case HandlingTrace::TENDENCY_OVER: handlingColor = red; break;
+			default: break;
+			}
 			drawRadarValue(rightValueX,
 				cellY(HANDLING_CELL) + HANDLING_LINE_DY + i * HANDLING_LINE_STEP,
-				COLUMN_CONTENT_WIDTH, HANDLING_LINE_HEIGHT, *handlingLines[i],
-				handlingIds[i], TFT_WHITE, 1, ML_DATUM, redraw);
+				COLUMN_CONTENT_WIDTH, HANDLING_LINE_HEIGHT, state.handling.lines[i],
+				handlingIds[i], handlingColor, 1, ML_DATUM, redraw,
+				HANDLING_LINE_SCALE_X, HANDLING_LINE_SCALE_Y);
+		}
 
 		drawRadarTyres(state, redraw, tyreSprite, tyreSpriteCreated);
 		drawRadarLapStrip(state, redraw);

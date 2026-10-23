@@ -11,6 +11,9 @@
 // 14/10/2026 16:49 - Marche arriere: rapport 0 = R, 15 = N (le drapeau InGear ne distinguait pas R de N) ; historique ramene a 7 tours
 // 16/10/2026 14:08 - Pit: suppression du test du regime moteur a l'arret (ralenti de plusieurs milliers de tr/min sur certaines voitures)
 // 16/10/2026 14:37 - LED RGB (carte 3248S035) : clignotement bleu a l'approche de minAlertRPM quand le regime monte ; rpmAlertMinRpm dans DashboardState ; remise en forme de la phase d'arret du pit
+// 23/10/2026 14:47 - Ecran de configuration Wi-Fi : nom et version du fork + credit du projet d'origine en bas ; titre, credit et position du credit mis en commun avec l'ecran d'attente
+// 23/10/2026 14:44 - Ecran d'attente : titre "GT7 Extended Dashboard", version du fork (extended_version.h) sous le titre a droite, credit "Based on GT7 Dash by caa1211" descendu de 20 px
+// 23/10/2026 00:06 - Mode demo : accelerateur partiel en fin de rapport pour alimenter la phase "milieu de virage" de l'analyse de comportement
 // 21/10/2026 10:51 - Trace de comportement (lacet mesure / neutre, braquage, ecarts de vitesse des roues) dans DashboardState.handling, alimentee par la telemetrie et simulee en mode demo
 #ifndef __SHCUSTOMPROTOCOL_H__
 #define __SHCUSTOMPROTOCOL_H__
@@ -37,6 +40,7 @@
 #include <BleGamepad.h> // libreria bluetooth
 #include <GT7DerivedMetrics.h>
 #include "version.h"
+#include "extended_version.h"
 #include "dashboard/HandlingTrace.h"
 #if defined(BOARD_RGB_LED_BLUE_PIN)
 #include "dashboard/ShiftLed.h"
@@ -48,6 +52,18 @@ static const int RESET_WAITING_TIME = 3;
 static const int SCREEN_WIDTH = 320;
 static const int SCREEN_HEIGHT = 240;
 static const int X_CENTER = SCREEN_WIDTH / 2;
+
+// Nom du fork et credit du projet d'origine (ecran d'attente et ecran Wi-Fi).
+static const char *const GT7_EXTENDED_TITLE = "GT7 Extended Dashboard";
+static const char *const GT7_ORIGIN_CREDIT = "Based on GT7 Dash by caa1211";
+// Ligne du credit, en bas d'ecran. Sur la carte 3248S035 (320 px de haut), elle
+// passe 20 px sous la zone 320x240 des ecrans ; sur la carte 2,8" (240 px), elle
+// reste en bas de l'ecran pour rester visible.
+#if defined(BOARD_ESP32_3248S035)
+static const int CREDIT_Y = SCREEN_HEIGHT - 12 + 20;
+#else
+static const int CREDIT_Y = SCREEN_HEIGHT - 12;
+#endif
 static const int Y_CENTER = SCREEN_HEIGHT / 2;
 static const int ROWS = 5;
 static const int COLS = 5;
@@ -238,7 +254,7 @@ struct DashboardState
 	float turboBoostBar = NAN;
 	// Plus haute pression vue depuis le debut de la course (echelle de la barre du theme Radar).
 	float turboBoostMaxBar = 0.0f;
-	// Trace de comportement (sous/survirage, DGL) : 3 lignes affichees par le theme Radar.
+	// Analyse de comportement (sous/survirage, DGL) par phase de virage, affichee par le theme Radar.
 	HandlingTrace handling;
 	String gameRunning = "False";
 	// Historique glissant des derniers tours (affiche par le bandeau du theme Radar).
@@ -335,12 +351,19 @@ static void showWifiSetupScreen()
 	tft.setTextSize(2);
 	tft.drawString("192.168.4.1", 160, 195);
 
+	// Nom et version du fork, puis credit du projet d'origine juste en dessous.
 	tft.setTextColor(TFT_WHITE, TFT_BLACK);
 	tft.setTextSize(1);
 	tft.drawCentreString(
-		String("v") + GT7_DASH_VERSION,
+		String(GT7_EXTENDED_TITLE) + "  v" + GT7_EXTENDED_DASH_VERSION,
 		SCREEN_WIDTH / 2,
-		SCREEN_HEIGHT - 12,
+		CREDIT_Y - 12,
+		1);
+	tft.setTextColor(tft.color565(120, 120, 120), TFT_BLACK);
+	tft.drawCentreString(
+		GT7_ORIGIN_CREDIT,
+		SCREEN_WIDTH / 2,
+		CREDIT_Y,
 		1);
 }
 
@@ -813,9 +836,9 @@ public:
 #define DASHBOARD_PIT_DEBUG 0	// 1 = trace les changements de phase sur le port série
 #endif
 	static constexpr float LAP_PIT_STABLE_BAND_KMH = 2.0f;	// tolérance pour dire "vitesse stable"
-	static constexpr uint32_t LAP_PIT_STABLE_MS = 1000;		// durée minimale des phases 1 et 3
+	static constexpr uint32_t LAP_PIT_STABLE_MS = 800;		// durée minimale des phases 1 et 3
 	static constexpr float LAP_PIT_MIN_KMH = 58.0f;			// plage de vitesse acceptée pour les phases 1 et 3
-	static constexpr float LAP_PIT_MAX_KMH = 81.0f;
+	static constexpr float LAP_PIT_MAX_KMH = 80.0f;
 	static constexpr float LAP_PIT_STOPPED_KMH = 1.0f;		// en dessous: arrêt (phase 2)
 	static constexpr uint32_t LAP_PIT_STOP_MS = 1500;		// durée minimale de l'arrêt
 	static constexpr uint32_t LAP_PIT_APPROACH_TIMEOUT_MS = 10000;	// délai max entre phase 1 et arrêt
@@ -1474,7 +1497,8 @@ public:
 		// Pedales : l'interface les lit dans absLevel/absFilteredLevel (frein)
 		// et tcLevel/tcFilteredLevel (accelerateur).
 		const bool braking = gearPhase >= 0.9f;
-		const int throttle = braking ? 15 : 100;
+		// Accelerateur partiel avant le freinage: phase "milieu de virage" de HandlingTrace.
+		const int throttle = braking ? 15 : (gearPhase >= 0.7f ? 30 : 100);
 		const int brakeInput = braking ? 80 : 0;
 		tcLevel = String(throttle);
 		tcFilteredLevel = String(throttle * 9 / 10);
@@ -1521,25 +1545,31 @@ public:
 		// Turbo: depression au freinage, pression qui monte avec le regime ailleurs.
 		updateTurbo(true, braking ? -0.6f : 0.1f + 1.1f * gearPhase);
 
-		// Comportement: virage gauche/droite toutes les 8 s, voiture qui alterne
-		// sous-virage (lacet a 80 % du neutre) et survirage (120 %).
+		// Comportement: virage gauche/droite toutes les 8 s ; sous-virage au freinage
+		// (lacet a 85 % du neutre), neutre a accelerateur partiel, survirage a pleine
+		// charge (120 %).
 		{
 			const float demoSpeedMs = (40.0f + (gearIndex - 1) * 38.0f + gearPhase * 38.0f) / 3.6f;
 			const float demoWheelBase = 2.65f;
 			const float demoSteer = 0.08f * sinf(now / 1273.0f);
-			const float demoYawRatio = 1.0f + 0.2f * sinf(now / 4000.0f);
+			const float demoYawRatio = braking ? 0.85f : (throttle < 50 ? 1.0f : 1.2f);
 			const float demoAngular[3] = {0.0f,
 				demoYawRatio * demoSpeedMs * tanf(demoSteer) / demoWheelBase, 0.0f};
 			const float demoSteerAngles[2] = {demoSteer, demoSteer};
 			const float demoRadius[4] = {0.33f, 0.33f, 0.34f, 0.34f};
-			// Ecart naturel en virage (voie ~1,6 m) + patinage de la roue arriere interieure.
+			// Avant libre: ecart naturel du virage (voie ~1,6 m). Arriere: differentiel
+			// bloque a 70 % (R/F ~0,3), et patinage de la roue interieure en debut de
+			// rapport a pleine charge (R/F negatif).
 			const float trackSpeedMs = 0.8f * demoAngular[1];
-			const float spin = (throttle > 90 && gearPhase < 0.3f) ? 2.0f : 0.0f;
+			const float rearTrackSpeedMs = 0.3f * trackSpeedMs;
+			const float spin = (throttle > 90 && gearPhase < 0.3f) ? 1.5f : 0.0f;
+			const float spinLeft = demoAngular[1] > 0.0f ? spin : 0.0f;	// virage a gauche: interieur = gauche
+			const float spinRight = demoAngular[1] > 0.0f ? 0.0f : spin;
 			const float demoWheelRps[4] = {
 				(demoSpeedMs - trackSpeedMs) / demoRadius[0],
 				(demoSpeedMs + trackSpeedMs) / demoRadius[1],
-				(demoSpeedMs - trackSpeedMs + spin) / demoRadius[2],
-				(demoSpeedMs + trackSpeedMs) / demoRadius[3]};
+				(demoSpeedMs - rearTrackSpeedMs + spinLeft) / demoRadius[2],
+				(demoSpeedMs + rearTrackSpeedMs + spinRight) / demoRadius[3]};
 			handling.update({demoSpeedMs, demoAngular, demoSteerAngles, demoWheelBase,
 				demoWheelRps, demoRadius, throttle, brakeInput}, now);
 		}
@@ -1819,12 +1849,27 @@ public:
 		tft.setTextPadding(0);
 		tft.setTextDatum(MC_DATUM);
 
+		static const char *const title = GT7_EXTENDED_TITLE;
+		static constexpr int titleY = 75;
+		static constexpr int titleFont = 4;
 		tft.setTextColor(TFT_WHITE, TFT_BLACK);
 		tft.drawCentreString(
-			"GT7 DASH",
+			title,
 			SCREEN_WIDTH / 2,
-			75,
-			4);
+			titleY,
+			titleFont);
+
+		// Version du fork juste sous le titre, alignee sur son bord droit.
+		tft.setTextFont(titleFont);
+		const int titleWidth = tft.textWidth(title);
+		tft.setTextDatum(TR_DATUM);
+		tft.setTextColor(tft.color565(170, 170, 170), TFT_BLACK);
+		tft.drawString(
+			String("v") + GT7_EXTENDED_DASH_VERSION,
+			SCREEN_WIDTH / 2 + titleWidth / 2,
+			titleY + tft.fontHeight(titleFont) + 2,
+			1);
+		tft.setTextDatum(MC_DATUM);
 
 		tft.setTextColor(
 			tft.color565(120, 120, 120),
@@ -1858,10 +1903,11 @@ public:
 			SCREEN_HEIGHT - 26,
 			1);
 
+		// Credit du projet d'origine (position: voir CREDIT_Y).
 		tft.drawCentreString(
-			String("v") + GT7_DASH_VERSION + "  |  by caa1211",
+			GT7_ORIGIN_CREDIT,
 			SCREEN_WIDTH / 2,
-			SCREEN_HEIGHT - 12,
+			CREDIT_Y,
 			1);
 	}
 
