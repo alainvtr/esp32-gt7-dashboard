@@ -1,3 +1,4 @@
+// 23/10/2026 15:05 - Reglages (zone d'approche, clignotement, sens du regime) deplaces dans include/tuning.h, prefixes SHIFT_LED_
 // 20/10/2026 16:57 - Suppression du test des couleurs au demarrage (LED ressoudee et validee, ordre des couleurs conforme)
 // 16/10/2026 16:51 - LED validee (externe) : test de demarrage ramene a 0,4 s par couleur, trace serie desactivee
 // 16/10/2026 15:15 - Test de demarrage allonge (3 s par couleur, 2 tours) avec relecture du niveau des broches, pour mesure au multimetre
@@ -6,6 +7,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include "tuning.h"
 
 // Trace sur le port serie (regime, seuil, sens, etat) toutes les 250 ms.
 // Mettre a 1 pour diagnostiquer.
@@ -16,23 +18,19 @@
 // Pilotage de la LED RGB de la carte pour annoncer l'arrivee du seuil d'alerte
 // du jeu (minAlertRPM, alias RPMFlashingAlertMin).
 //
-//  - zone d'approche : de APPROACH_START_RATIO x seuil jusqu'au seuil ;
+//  - zone d'approche : de SHIFT_LED_APPROACH_START_RATIO x seuil jusqu'au seuil ;
 //  - dans cette zone, si le regime MONTE : clignotement bleu, de plus en plus
 //    rapide a mesure qu'on s'approche du seuil ;
 //  - si le regime DESCEND, sous la zone, ou au-dela du seuil : LED eteinte.
 //
 // Le sens (monte / descend) est determine en comparant le regime a celui
-// d'il y a DIRECTION_WINDOW_MS, avec une marge (DIRECTION_HYSTERESIS_RPM) pour
+// d'il y a SHIFT_LED_DIRECTION_WINDOW_MS, avec une marge (SHIFT_LED_DIRECTION_HYSTERESIS_RPM) pour
 // ne pas reagir aux petites variations de la telemetrie. Tant que l'ecart
 // reste dans la marge (regime stable), le dernier sens connu est conserve.
 class ShiftLed
 {
 public:
-	static constexpr float APPROACH_START_RATIO = 0.85f;	// debut de zone = 85 % du seuil
-	static constexpr uint32_t BLINK_HALF_PERIOD_SLOW_MS = 200;	// debut de zone: 2,5 clignotements/s
-	static constexpr uint32_t BLINK_HALF_PERIOD_FAST_MS = 40;	// pres du seuil: 12,5 clignotements/s
-	static constexpr uint32_t DIRECTION_WINDOW_MS = 100;
-	static constexpr int DIRECTION_HYSTERESIS_RPM = 40;
+	// Zone d'approche, rythme de clignotement et detection du sens : voir include/tuning.h.
 
 	void begin(int redPin, int greenPin, int bluePin, bool activeLow)
 	{
@@ -68,7 +66,7 @@ public:
 
 		updateDirection(rpm, now);
 
-		const float start = alertMinRpm * APPROACH_START_RATIO;
+		const float start = alertMinRpm * SHIFT_LED_APPROACH_START_RATIO;
 		const bool inApproach = rpm >= start && rpm < alertMinRpm;
 		if (!inApproach || !rising_)
 		{
@@ -79,9 +77,9 @@ public:
 
 		// 0 en debut de zone, 1 au seuil: la demi-periode raccourcit avec l'approche.
 		const float progress = constrain((rpm - start) / (alertMinRpm - start), 0.0f, 1.0f);
-		const uint32_t halfPeriod = BLINK_HALF_PERIOD_SLOW_MS -
+		const uint32_t halfPeriod = SHIFT_LED_BLINK_HALF_PERIOD_SLOW_MS -
 			static_cast<uint32_t>(progress *
-				(BLINK_HALF_PERIOD_SLOW_MS - BLINK_HALF_PERIOD_FAST_MS));
+				(SHIFT_LED_BLINK_HALF_PERIOD_SLOW_MS - SHIFT_LED_BLINK_HALF_PERIOD_FAST_MS));
 
 		if (!blinking_)
 		{
@@ -106,7 +104,7 @@ private:
 		lastTrace_ = now;
 		Serial.printf("[LED] actif=%d rpm=%d seuil=%d debut=%d monte=%d bleu=%d\n",
 			active ? 1 : 0, rpm, alertMinRpm,
-			static_cast<int>(alertMinRpm * APPROACH_START_RATIO),
+			static_cast<int>(alertMinRpm * SHIFT_LED_APPROACH_START_RATIO),
 			rising_ ? 1 : 0, blueOn_ ? 1 : 0);
 	}
 	uint32_t lastTrace_ = 0;
@@ -121,13 +119,13 @@ private:
 			referenceTime_ = now;
 			return;
 		}
-		if (now - referenceTime_ < DIRECTION_WINDOW_MS)
+		if (now - referenceTime_ < SHIFT_LED_DIRECTION_WINDOW_MS)
 			return;
 
 		const int delta = rpm - referenceRpm_;
-		if (delta > DIRECTION_HYSTERESIS_RPM)
+		if (delta > SHIFT_LED_DIRECTION_HYSTERESIS_RPM)
 			rising_ = true;
-		else if (delta < -DIRECTION_HYSTERESIS_RPM)
+		else if (delta < -SHIFT_LED_DIRECTION_HYSTERESIS_RPM)
 			rising_ = false;
 		referenceRpm_ = rpm;
 		referenceTime_ = now;

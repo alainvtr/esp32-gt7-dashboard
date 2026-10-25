@@ -1,9 +1,11 @@
+// 23/10/2026 15:05 - Seuils ajustables (virage, phases, moyennes, couleurs) deplaces dans include/tuning.h
 // 23/10/2026 00:06 - Affichage par phase de virage (entree / milieu / sortie) : equilibre Y/N et blocage du differentiel arriere R/F, moyennes glissantes ; trace brute conservee sur le port serie
 // 21/10/2026 10:51 - Trace du comportement (sous/survirage, ecarts de vitesse des roues) pour aider au reglage du DGL : 3 lignes pour le HUD + trace serie [HDL]
 #pragma once
 
 #include <Arduino.h>
 #include <math.h>
+#include "tuning.h"
 
 // Trace serie [HDL] (toutes les donnees brutes) a HANDLING_SERIAL_PERIOD_MS.
 #ifndef DASHBOARD_HANDLING_DEBUG
@@ -43,20 +45,9 @@ public:
 	static constexpr uint32_t HANDLING_DISPLAY_PERIOD_MS = 200;
 	static constexpr uint32_t HANDLING_SERIAL_PERIOD_MS = 100;
 	static constexpr float HANDLING_MIN_SPEED_MS = 2.0f;	// en dessous: lacet neutre non calcule
-
-	// Detection du virage et des phases.
-	static constexpr float HANDLING_MIN_NEUTRAL_YAW = 0.1f;	// rad/s: en dessous, ligne droite
-	static constexpr float HANDLING_MIN_FRONT_DIFF_KMH = 0.5f;	// en dessous, R/F non calcule
-	static constexpr int HANDLING_BRAKE_MIN_PERCENT = 5;
-	static constexpr int HANDLING_LIFT_MAX_THROTTLE_PERCENT = 10;
-	static constexpr int HANDLING_EXIT_MIN_THROTTLE_PERCENT = 50;
-
-	// Moyennes et seuils d'interpretation.
-	static constexpr float HANDLING_AVERAGE_TIME_S = 10.0f;
-	static constexpr float HANDLING_MIN_SAMPLE_TIME_S = 0.5f;	// avant: "--"
 	static constexpr uint32_t HANDLING_MAX_STEP_MS = 100;	// trou de telemetrie ignore
-	static constexpr float HANDLING_UNDERSTEER_RATIO = 0.9f;
-	static constexpr float HANDLING_OVERSTEER_RATIO = 1.1f;
+
+	// Seuils de detection, de phase, de moyenne et de couleur : voir include/tuning.h.
 
 	enum Phase : uint8_t { PHASE_ENTRY, PHASE_MID, PHASE_EXIT, PHASE_COUNT };
 	enum Tendency : int8_t { TENDENCY_NONE = -2, TENDENCY_UNDER = -1, TENDENCY_NEUTRAL = 0, TENDENCY_OVER = 1 };

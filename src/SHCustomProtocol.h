@@ -11,6 +11,9 @@
 // 14/10/2026 16:49 - Marche arriere: rapport 0 = R, 15 = N (le drapeau InGear ne distinguait pas R de N) ; historique ramene a 7 tours
 // 16/10/2026 14:08 - Pit: suppression du test du regime moteur a l'arret (ralenti de plusieurs milliers de tr/min sur certaines voitures)
 // 16/10/2026 14:37 - LED RGB (carte 3248S035) : clignotement bleu a l'approche de minAlertRPM quand le regime monte ; rpmAlertMinRpm dans DashboardState ; remise en forme de la phase d'arret du pit
+// 23/10/2026 15:12 - Ecran d'attente : "By Alain Vautrain" centre sous le titre, a la hauteur de la version
+// 23/10/2026 15:05 - Parametres de detection du pit deplaces dans include/tuning.h (valeurs d'Alain reprises : LAP_PIT_STABLE_MS 1000, LAP_PIT_MAX_KMH 80)
+// 23/10/2026 15:00 - Pit: LAP_PIT_MAX_KMH porte a 80 km/h (reglage d'Alain, limiteur plus rapide sur certains circuits)
 // 23/10/2026 14:47 - Ecran de configuration Wi-Fi : nom et version du fork + credit du projet d'origine en bas ; titre, credit et position du credit mis en commun avec l'ecran d'attente
 // 23/10/2026 14:44 - Ecran d'attente : titre "GT7 Extended Dashboard", version du fork (extended_version.h) sous le titre a droite, credit "Based on GT7 Dash by caa1211" descendu de 20 px
 // 23/10/2026 00:06 - Mode demo : accelerateur partiel en fin de rapport pour alimenter la phase "milieu de virage" de l'analyse de comportement
@@ -41,6 +44,7 @@
 #include <GT7DerivedMetrics.h>
 #include "version.h"
 #include "extended_version.h"
+#include "tuning.h"
 #include "dashboard/HandlingTrace.h"
 #if defined(BOARD_RGB_LED_BLUE_PIN)
 #include "dashboard/ShiftLed.h"
@@ -55,6 +59,7 @@ static const int X_CENTER = SCREEN_WIDTH / 2;
 
 // Nom du fork et credit du projet d'origine (ecran d'attente et ecran Wi-Fi).
 static const char *const GT7_EXTENDED_TITLE = "GT7 Extended Dashboard";
+static const char *const GT7_EXTENDED_AUTHOR = "By Alain Vautrain";
 static const char *const GT7_ORIGIN_CREDIT = "Based on GT7 Dash by caa1211";
 // Ligne du credit, en bas d'ecran. Sur la carte 3248S035 (320 px de haut), elle
 // passe 20 px sous la zone 320x240 des ecrans ; sur la carte 2,8" (240 px), elle
@@ -835,14 +840,7 @@ public:
 #ifndef DASHBOARD_PIT_DEBUG
 #define DASHBOARD_PIT_DEBUG 0	// 1 = trace les changements de phase sur le port série
 #endif
-	static constexpr float LAP_PIT_STABLE_BAND_KMH = 2.0f;	// tolérance pour dire "vitesse stable"
-	static constexpr uint32_t LAP_PIT_STABLE_MS = 800;		// durée minimale des phases 1 et 3
-	static constexpr float LAP_PIT_MIN_KMH = 58.0f;			// plage de vitesse acceptée pour les phases 1 et 3
-	static constexpr float LAP_PIT_MAX_KMH = 80.0f;
-	static constexpr float LAP_PIT_STOPPED_KMH = 1.0f;		// en dessous: arrêt (phase 2)
-	static constexpr uint32_t LAP_PIT_STOP_MS = 1500;		// durée minimale de l'arrêt
-	static constexpr uint32_t LAP_PIT_APPROACH_TIMEOUT_MS = 10000;	// délai max entre phase 1 et arrêt
-	static constexpr uint32_t LAP_PIT_LEAVE_TIMEOUT_MS = 15000;		// délai max entre arrêt et phase 3
+	// Parametres de detection du pit (LAP_PIT_*) : voir include/tuning.h.
 
 
 	enum PitPhase : uint8_t { PIT_IDLE, PIT_APPROACH, PIT_STOPPED, PIT_LEAVING, PIT_DONE };
@@ -1859,15 +1857,19 @@ public:
 			titleY,
 			titleFont);
 
-		// Version du fork juste sous le titre, alignee sur son bord droit.
+		// Sous le titre, sur une meme ligne : auteur du fork au centre, version
+		// du fork alignee sur le bord droit du titre.
 		tft.setTextFont(titleFont);
 		const int titleWidth = tft.textWidth(title);
-		tft.setTextDatum(TR_DATUM);
+		const int subtitleY = titleY + tft.fontHeight(titleFont) + 2;
 		tft.setTextColor(tft.color565(170, 170, 170), TFT_BLACK);
+		tft.setTextDatum(TC_DATUM);
+		tft.drawString(GT7_EXTENDED_AUTHOR, SCREEN_WIDTH / 2, subtitleY, 1);
+		tft.setTextDatum(TR_DATUM);
 		tft.drawString(
 			String("v") + GT7_EXTENDED_DASH_VERSION,
 			SCREEN_WIDTH / 2 + titleWidth / 2,
-			titleY + tft.fontHeight(titleFont) + 2,
+			subtitleY,
 			1);
 		tft.setTextDatum(MC_DATUM);
 
