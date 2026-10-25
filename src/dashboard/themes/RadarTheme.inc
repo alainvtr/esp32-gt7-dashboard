@@ -1,3 +1,4 @@
+// 25/10/2026 16:40 - Case FUEL : debit de carburant instantane (L/min) en petit a gauche du pourcentage (essai "debitmetre")
 // 25/10/2026 16:30 - Cadran TURBO : echelle de depression = plus forte depression de la course (GT7 peut envoyer -2 bar ou plus), jamais moins de 1 bar
 // 25/10/2026 16:25 - Cellule TURBO : cadran rond (arc de 240 degres, point 0 au quart gauche, depression en gris, pression blanc / orange / rouge) avec la valeur et "bar" au centre, a la place de la barre plate
 // 25/10/2026 16:10 - Temps BEST aligne a droite (comme les autres valeurs des colonnes)
@@ -108,6 +109,11 @@ static_assert(TURBO_GAUGE_CENTER_DY - TURBO_GAUGE_RADIUS >= 0 &&
 	TURBO_GAUGE_CENTER_DY + TURBO_GAUGE_RADIUS / 2 < TURBO_GAUGE_HEIGHT &&
 	TURBO_GAUGE_DY + TURBO_GAUGE_HEIGHT <= COLUMN_LAST_CELL_HEIGHT,
 	"cadran TURBO trop grand pour la cellule");
+
+// Case FUEL (colonne droite, en haut) : debit instantane en L/min, en petit a gauche
+// du pourcentage. Le pourcentage ("100" = 30 px environ) garde les 42 px de droite.
+static constexpr int FUEL_FLOW_WIDTH = 46;
+static constexpr int FUEL_FLOW_TEXT_DY = 3;	// bas du petit texte aligne sur la valeur
 
 // Cellule HANDLING: colonne droite, sous CURRENT. Une ligne par phase de virage
 // en police 1 (6x8 px a l'echelle 1, 13 caracteres au plus) :
@@ -812,7 +818,19 @@ static constexpr int LAP_STRIP_CELLS_X = LAP_STRIP_X +
 			COLUMN_VALUE_HEIGHT, radarShortLapTime(state.bestLapTime),
 			"radarBest", TFT_WHITE, 2, MR_DATUM, redraw,
 			COLUMN_VALUE_SCALE, COLUMN_VALUE_SCALE);
-		drawRadarValue(rightValueX, cellValueY(0), COLUMN_CONTENT_WIDTH,
+		// Debit: rien pour une voiture electrique, "--" tant qu'il n'est pas calcule.
+		String fuelFlowText;
+		if (!state.fuelIsEV)
+		{
+			const float flow = state.fuelFlow.litersPerMinute;
+			fuelFlowText = isfinite(flow) ? String(flow, flow < 10.0f ? 2 : 1) : "--";
+		}
+		drawRadarValue(rightValueX, cellValueY(0), FUEL_FLOW_WIDTH,
+			COLUMN_VALUE_HEIGHT, fuelFlowText, "radarFuelFlow",
+			tft.color565(150, 200, 230), 2, ML_DATUM, redraw, 1.0f, 1.0f,
+			FUEL_FLOW_TEXT_DY);
+		drawRadarValue(rightValueX + FUEL_FLOW_WIDTH, cellValueY(0),
+			COLUMN_CONTENT_WIDTH - FUEL_FLOW_WIDTH,
 			COLUMN_VALUE_HEIGHT, state.fuelDisplayValue, "radarFuel",
 			TFT_WHITE, 2, MR_DATUM, redraw, COLUMN_VALUE_SCALE, COLUMN_VALUE_SCALE);
 		drawRadarValue(rightValueX, cellValueY(1), COLUMN_CONTENT_WIDTH,
