@@ -1,3 +1,4 @@
+// 25/10/2026 14:45 - Phase d'entree separee en F (freinage : repartition de freinage + DGL Decel) et L (lever de pied : DGL Decel seul) -> 4 lignes
 // 23/10/2026 15:05 - Seuils ajustables (virage, phases, moyennes, couleurs) deplaces dans include/tuning.h
 // 23/10/2026 00:06 - Affichage par phase de virage (entree / milieu / sortie) : equilibre Y/N et blocage du differentiel arriere R/F, moyennes glissantes ; trace brute conservee sur le port serie
 // 21/10/2026 10:51 - Trace du comportement (sous/survirage, ecarts de vitesse des roues) pour aider au reglage du DGL : 3 lignes pour le HUD + trace serie [HDL]
@@ -28,14 +29,17 @@
 //          interieure.
 //
 // Chaque indicateur est moyenne par phase, selon les pedales :
-//  - E (entree)  : frein, ou lever de pied        -> reglage DGL "Decel"
-//  - M (milieu)  : accelerateur partiel, sans frein -> reglage DGL "Initial"
-//  - S (sortie)  : accelerateur franc, sans frein   -> reglage DGL "Accel"
+//  - F (freinage)      : frein                        -> repartition de freinage + DGL "Decel"
+//  - L (lever de pied) : ni frein ni accelerateur     -> DGL "Decel" seul (temoin de F)
+//  - M (milieu)        : accelerateur partiel, sans frein -> reglage DGL "Initial"
+//  - S (sortie)        : accelerateur franc, sans frein   -> reglage DGL "Accel"
+// Comparer F et L separe l'effet de la repartition de freinage de celui du DGL :
+// F en sous-virage et L neutre -> freinage trop sur l'avant, pas le DGL.
 // La moyenne est glissante (exponentielle) sur environ HANDLING_AVERAGE_TIME_S
 // secondes de virage cumule dans la phase : elle suit un changement de reglage
 // sans attendre la fin du tour.
 //
-// Affichage : une ligne par phase, "E 0.92 +0.10" (phase, Y/N, R/F), figee
+// Affichage : une ligne par phase, "F 0.92 +0.10" (phase, Y/N, R/F), figee
 // HANDLING_DISPLAY_PERIOD_MS pour rester lisible ; "--" tant qu'il n'y a pas
 // assez de donnees.
 class HandlingTrace
@@ -49,7 +53,7 @@ public:
 
 	// Seuils de detection, de phase, de moyenne et de couleur : voir include/tuning.h.
 
-	enum Phase : uint8_t { PHASE_ENTRY, PHASE_MID, PHASE_EXIT, PHASE_COUNT };
+	enum Phase : uint8_t { PHASE_BRAKE, PHASE_LIFT, PHASE_MID, PHASE_EXIT, PHASE_COUNT };
 	enum Tendency : int8_t { TENDENCY_NONE = -2, TENDENCY_UNDER = -1, TENDENCY_NEUTRAL = 0, TENDENCY_OVER = 1 };
 
 	struct Input
@@ -64,8 +68,8 @@ public:
 		int brakePercent;
 	};
 
-	String lines[PHASE_COUNT] = {"E --   --", "M --   --", "S --   --"};
-	Tendency tendency[PHASE_COUNT] = {TENDENCY_NONE, TENDENCY_NONE, TENDENCY_NONE};
+	String lines[PHASE_COUNT] = {"F --   --", "L --   --", "M --   --", "S --   --"};
+	Tendency tendency[PHASE_COUNT] = {TENDENCY_NONE, TENDENCY_NONE, TENDENCY_NONE, TENDENCY_NONE};
 
 	void update(const Input &in, uint32_t now)
 	{
@@ -122,9 +126,10 @@ private:
 
 	static Phase phaseOf(const Input &in)
 	{
-		if (in.brakePercent >= HANDLING_BRAKE_MIN_PERCENT ||
-			in.throttlePercent <= HANDLING_LIFT_MAX_THROTTLE_PERCENT)
-			return PHASE_ENTRY;
+		if (in.brakePercent >= HANDLING_BRAKE_MIN_PERCENT)
+			return PHASE_BRAKE;
+		if (in.throttlePercent <= HANDLING_LIFT_MAX_THROTTLE_PERCENT)
+			return PHASE_LIFT;
 		if (in.throttlePercent >= HANDLING_EXIT_MIN_THROTTLE_PERCENT)
 			return PHASE_EXIT;
 		return PHASE_MID;
@@ -150,7 +155,7 @@ private:
 
 	void refreshLines()
 	{
-		static const char phaseNames[PHASE_COUNT] = {'E', 'M', 'S'};
+		static const char phaseNames[PHASE_COUNT] = {'F', 'L', 'M', 'S'};
 		for (int p = 0; p < PHASE_COUNT; ++p)
 		{
 			char balance[8];

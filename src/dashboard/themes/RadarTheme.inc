@@ -1,3 +1,7 @@
+// 25/10/2026 16:30 - Cadran TURBO : echelle de depression = plus forte depression de la course (GT7 peut envoyer -2 bar ou plus), jamais moins de 1 bar
+// 25/10/2026 16:25 - Cellule TURBO : cadran rond (arc de 240 degres, point 0 au quart gauche, depression en gris, pression blanc / orange / rouge) avec la valeur et "bar" au centre, a la place de la barre plate
+// 25/10/2026 16:10 - Temps BEST aligne a droite (comme les autres valeurs des colonnes)
+// 25/10/2026 14:45 - Cellules du haut et 4e cellule moins hautes de 3 px (valeurs remontees de 2 px, sauf B/T de PEDALS), cadre des colonnes allonge de 2 px : 5e cellule +14 px (56 -> 70) pour 4 lignes HANDLING (F/L/M/S)
 // 23/10/2026 14:37 - Colonnes elargies de 10 px vers le centre (90 -> 100 px, contenu 78 -> 88 px) ; lignes HANDLING elargies d'autant (police 1 x1,1 en largeur), en-tetes Y/N et R/F derives de la largeur des caracteres
 // 23/10/2026 14:28 - COLUMN_FRAME_HEIGHT calcule sans appeler cellY() : ce fichier est inclus dans la classe SHCustomProtocol, ou une fonction membre constexpr n'est pas utilisable dans l'initialisation d'une autre constante membre
 // 23/10/2026 00:14 - Hauteurs de cellules differenciees : 3 cellules du haut 44 px (valeur remontee de 3 px), 4e inchangee (47 px), 5e 56 px ; lignes HANDLING plus hautes (police 1 etiree verticalement x1,4)
@@ -25,21 +29,22 @@ static constexpr int CENTER_COL_X = 160;
 static constexpr int RIGHT_X = SCREEN_WIDTH - COLUMN_WIDTH;
 static constexpr int TOP_Y = 0;
 
-// Colonnes laterales: 5 cellules, 235 px au total (le cadre s'arrete a y = 238, avant
-// la barre du bas). Les 3 cellules du haut (une seule valeur) sont plus basses pour
-// donner de la place a la 5e (TURBO a gauche, HANDLING a droite) :
-// 44 + 44 + 44 + 47 + 56.
+// Colonnes laterales: 5 cellules, 237 px au total (le cadre s'arrete a y = 240, 8 px
+// avant la barre du bas). Les 4 premieres cellules sont reduites au plus juste pour
+// donner de la place a la 5e (TURBO a gauche, HANDLING a droite, 4 lignes) :
+// 41 + 41 + 41 + 44 + 70.
 static constexpr int COLUMN_CELL_COUNT = 5;
 static constexpr int COLUMN_TOP_CELLS = 3;
-static constexpr int COLUMN_TOP_CELL_HEIGHT = 44;
-static constexpr int COLUMN_CELL_HEIGHT = 47;	// 4e cellule (PEDALS / CURRENT)
-static constexpr int COLUMN_LAST_CELL_HEIGHT = 56;	// 5e cellule (TURBO / HANDLING)
+static constexpr int COLUMN_TOP_CELL_HEIGHT = 41;
+static constexpr int COLUMN_CELL_HEIGHT = 44;	// 4e cellule (PEDALS / CURRENT)
+static constexpr int COLUMN_LAST_CELL_HEIGHT = 70;	// 5e cellule (TURBO / HANDLING)
 // Libelles et valeurs: meme echelle dans toutes les cellules.
 static constexpr float COLUMN_LABEL_SCALE = 1.4f;
 // 1.35: un temps "1:24.631" (56 px en police 2) occupe 76 px sur les 88 disponibles.
 static constexpr float COLUMN_VALUE_SCALE = 1.35f;
 static constexpr int COLUMN_LABEL_DY = 4;
-static constexpr int COLUMN_VALUE_DY = 18;
+// Remontee de 2 px (18 -> 16) avec la reduction des cellules de 3 px.
+static constexpr int COLUMN_VALUE_DY = 16;
 // Cellules du haut: valeur remontee de 3 px (cellule moins haute d'autant).
 static constexpr int COLUMN_TOP_VALUE_DY = COLUMN_VALUE_DY - 3;
 static constexpr int COLUMN_VALUE_HEIGHT = 27;
@@ -66,29 +71,48 @@ static constexpr int COLUMN_FRAME_HEIGHT = COLUMN_TOP_CELLS * COLUMN_TOP_CELL_HE
 	(COLUMN_CELL_COUNT - COLUMN_TOP_CELLS - 1) * COLUMN_CELL_HEIGHT +
 	COLUMN_LAST_CELL_HEIGHT + 3;
 
-// Cellule PEDALS: colonne gauche, sous BEST.
+// Cellule PEDALS: colonne gauche, sous BEST. Barres B/T a leur position d'origine
+// dans la cellule (non remontees avec les valeurs) : 18 + 24 px = 42 sur 44.
 static constexpr int PEDALS_CELL = 3;
+static constexpr int PEDALS_DY = 18;
 
-// Cellule TURBO: colonne gauche, sous PEDALS. Valeur + unite "bar", puis une barre
-// avec un point 0: la depression remplit vers la gauche, la pression vers la droite.
+// Cellule TURBO: colonne gauche, sous PEDALS. Cadran rond facon manometre de turbo :
+// arc de 240 degres ouvert en bas, point 0 au quart gauche ; la depression remplit
+// vers la gauche (gris), la pression vers la droite (blanc, puis orange et rouge
+// pres du maximum). Valeur au centre, "bar" dans l'ouverture basse.
+// Tout est dessine dans un sprite de 88 x 54 px sous le libelle (pas de scintillement).
 static constexpr int TURBO_CELL = 4;
-static constexpr int TURBO_VALUE_DY = 16;
-static constexpr int TURBO_VALUE_HEIGHT = 20;
-static constexpr int TURBO_UNIT_WIDTH = 20;
-static constexpr int TURBO_BAR_DY = 38;
-static constexpr int TURBO_BAR_HEIGHT = 7;
-// Valeur TURBO: zone moins haute (barre en dessous), echelle d'origine des colonnes.
+static constexpr int TURBO_GAUGE_DY = 16;	// haut du sprite sous le libelle
+static constexpr int TURBO_GAUGE_HEIGHT = 54;	// jusqu'au bas de la cellule (70 px)
+static constexpr int TURBO_GAUGE_RADIUS = 33;	// rayon exterieur de l'arc
+static constexpr int TURBO_GAUGE_THICKNESS = 6;
+static constexpr int TURBO_GAUGE_CENTER_DY = 34;	// centre de l'arc dans le sprite
+// Arc: 150 -> 390 degres (0 = 3 h, sens horaire), ouverture de 120 degres en bas.
+// Hauteur utile: rayon x (1 + sin 30) = 33 x 1,5 = 50 px.
+static constexpr float TURBO_GAUGE_START_DEGREES = 150.0f;
+static constexpr float TURBO_GAUGE_SWEEP_DEGREES = 240.0f;
+// Position du point 0 sur l'arc (fraction du balayage, depuis la gauche).
+static constexpr float TURBO_GAUGE_ZERO_FRACTION = 0.25f;
+// Zones de couleur de la pression (fraction de la pleine echelle de pression).
+static constexpr float TURBO_GAUGE_ORANGE_FRACTION = 0.6f;
+static constexpr float TURBO_GAUGE_RED_FRACTION = 0.85f;
+static constexpr int TURBO_VALUE_DY = -3;	// valeur un peu au-dessus du centre
+static constexpr int TURBO_UNIT_DY = 14;	// "bar" dans l'ouverture basse
 static constexpr float TURBO_VALUE_SCALE = 1.2f;
-// Position du point 0 dans la barre (fraction de la largeur, depuis la gauche).
-static constexpr float TURBO_BAR_ZERO_FRACTION = 0.25f;
-// Pleine echelle a gauche: -1 bar (vide absolu, la depression ne peut pas aller au-dela).
-static constexpr float TURBO_VACUUM_SCALE_BAR = 1.0f;
+// Pleine echelle a gauche: la plus forte depression de la course, jamais moins que
+// cette valeur (GT7 peut envoyer -2 bar ou plus sur certaines voitures).
+static constexpr float TURBO_MIN_VACUUM_SCALE_BAR = 1.0f;
 // Pleine echelle a droite: le maximum de la course, jamais moins que cette valeur.
 static constexpr float TURBO_MIN_BOOST_SCALE_BAR = 0.5f;
+static_assert(TURBO_GAUGE_CENTER_DY - TURBO_GAUGE_RADIUS >= 0 &&
+	TURBO_GAUGE_CENTER_DY + TURBO_GAUGE_RADIUS / 2 < TURBO_GAUGE_HEIGHT &&
+	TURBO_GAUGE_DY + TURBO_GAUGE_HEIGHT <= COLUMN_LAST_CELL_HEIGHT,
+	"cadran TURBO trop grand pour la cellule");
 
 // Cellule HANDLING: colonne droite, sous CURRENT. Une ligne par phase de virage
 // en police 1 (6x8 px a l'echelle 1, 13 caracteres au plus) :
-// "E 0.92 +0.10" = phase, equilibre Y/N, blocage arriere R/F.
+// "F 0.92 +0.10" = phase, equilibre Y/N, blocage arriere R/F.
+// 4 lignes (F, L, M, S) : 17 + 3 x 13 + 12 = 68 px sur les 70 de la cellule.
 // Les en-tetes Y/N et R/F sont places au-dessus de leurs colonnes de valeurs.
 static constexpr int HANDLING_CELL = 4;
 static constexpr int HANDLING_MAX_CHARS = 13;
@@ -104,6 +128,8 @@ static constexpr int HANDLING_HEADER_BALANCE_DX =
 	static_cast<int>(2 * FONT1_CHAR_WIDTH * HANDLING_LINE_SCALE_X) + 1;
 static constexpr int HANDLING_HEADER_LOCK_DX =
 	static_cast<int>(7 * FONT1_CHAR_WIDTH * HANDLING_LINE_SCALE_X) + 1;
+static_assert(HANDLING_LINE_DY + (HandlingTrace::PHASE_COUNT - 1) * HANDLING_LINE_STEP +
+	HANDLING_LINE_HEIGHT <= COLUMN_LAST_CELL_HEIGHT, "lignes HANDLING trop hautes pour la cellule");
 static_assert(HANDLING_MAX_CHARS * FONT1_CHAR_WIDTH * HANDLING_LINE_SCALE_X + 1 <= COLUMN_CONTENT_WIDTH,
 	"lignes HANDLING trop larges pour la colonne");
 
@@ -316,51 +342,106 @@ static constexpr int LAP_STRIP_CELLS_X = LAP_STRIP_X +
 			if (appliedWidth > 0)
 				pedalSprite.fillRect(11, y + 1, appliedWidth, 5, applied);
 		}
-		pedalSprite.pushSprite(LEFT_X + COLUMN_PADDING, cellValueY(PEDALS_CELL));
+		pedalSprite.pushSprite(LEFT_X + COLUMN_PADDING, cellY(PEDALS_CELL) + PEDALS_DY);
 		prevData["radarPedals"] = cacheState;
 		releaseSpriteAfterThemePreview(pedalSprite, spriteCreated);
 	}
 
-	// Barre TURBO: le cache porte sur les pixels remplis, pas sur la valeur,
-	// pour ne redessiner que si l'affichage change vraiment.
-	void drawRadarTurboBar(const DashboardState &state, bool forceUpdate)
+	// Cadran TURBO: le cache porte sur le texte et les angles remplis (au degre),
+	// pas sur la valeur brute, pour ne redessiner que si l'affichage change vraiment.
+	void drawRadarTurboGauge(const DashboardState &state, bool forceUpdate)
 	{
-		const int x = LEFT_X + COLUMN_PADDING;
-		const int y = cellY(TURBO_CELL) + TURBO_BAR_DY;
-		const int innerX = x + 1;
-		const int innerWidth = COLUMN_CONTENT_WIDTH - 2;
-		const int zeroX = innerX + lroundf(innerWidth * TURBO_BAR_ZERO_FRACTION);
-		const int leftSpan = zeroX - innerX;
-		const int rightSpan = innerX + innerWidth - 1 - zeroX;
+		static constexpr float ZERO_DEGREES =
+			TURBO_GAUGE_START_DEGREES + TURBO_GAUGE_SWEEP_DEGREES * TURBO_GAUGE_ZERO_FRACTION;
+		static constexpr float VACUUM_SWEEP = ZERO_DEGREES - TURBO_GAUGE_START_DEGREES;
+		static constexpr float PRESSURE_SWEEP =
+			TURBO_GAUGE_START_DEGREES + TURBO_GAUGE_SWEEP_DEGREES - ZERO_DEGREES;
 
-		int fillStart = zeroX;
-		int fillEnd = zeroX;
+		// Turbo: "--" pour une voiture sans turbo; arrondi au centieme sans "-0.00".
 		const float boost = state.turboBoostBar;
-		if (isfinite(boost) && boost > 0.0f)
+		String text = "--";
+		int vacuumDegrees = 0;
+		int pressureDegrees = 0;
+		if (isfinite(boost))
 		{
-			const float scale = max(state.turboBoostMaxBar, TURBO_MIN_BOOST_SCALE_BAR);
-			fillEnd = zeroX + lroundf(rightSpan * constrain(boost / scale, 0.0f, 1.0f));
+			const float rounded = roundf(boost * 100.0f) / 100.0f;
+			text = String(rounded == 0.0f ? 0.0f : rounded, 2);
+			if (boost > 0.0f)
+			{
+				const float scale = max(state.turboBoostMaxBar, TURBO_MIN_BOOST_SCALE_BAR);
+				pressureDegrees = lroundf(PRESSURE_SWEEP * constrain(boost / scale, 0.0f, 1.0f));
+			}
+			else if (boost < 0.0f)
+			{
+				const float scale = max(-state.turboBoostMinBar, TURBO_MIN_VACUUM_SCALE_BAR);
+				vacuumDegrees = lroundf(VACUUM_SWEEP * constrain(-boost / scale, 0.0f, 1.0f));
+			}
 		}
-		else if (isfinite(boost) && boost < 0.0f)
-		{
-			fillStart = zeroX - lroundf(leftSpan *
-				constrain(-boost / TURBO_VACUUM_SCALE_BAR, 0.0f, 1.0f));
-		}
-		const String cacheState = String(fillStart) + ":" + String(fillEnd);
-		if (!forceUpdate && prevData["radarTurboBar"] == cacheState) return;
+		const String cacheState = text + ":" + String(vacuumDegrees) + ":" + String(pressureDegrees);
+		if (!forceUpdate && prevData["radarTurbo"] == cacheState) return;
 
-		const uint16_t frame = tft.color565(70, 74, 78);
+		static LGFX_Sprite turboSprite(&tft);
+		static bool spriteCreated = false;
+		if (!spriteCreated)
+		{
+			turboSprite.setColorDepth(16);
+			spriteCreated = turboSprite.createSprite(COLUMN_CONTENT_WIDTH, TURBO_GAUGE_HEIGHT) != nullptr;
+		}
+		if (!spriteCreated) return;
+
+		const uint16_t track = tft.color565(35, 38, 40);
 		const uint16_t vacuum = tft.color565(112, 116, 120);
 		const uint16_t pressure = tft.color565(190, 195, 200);
-		tft.drawRect(x, y, COLUMN_CONTENT_WIDTH, TURBO_BAR_HEIGHT, frame);
-		tft.fillRect(innerX, y + 1, innerWidth, TURBO_BAR_HEIGHT - 2, TFT_BLACK);
-		if (fillEnd > zeroX)
-			tft.fillRect(zeroX + 1, y + 1, fillEnd - zeroX, TURBO_BAR_HEIGHT - 2, pressure);
-		if (fillStart < zeroX)
-			tft.fillRect(fillStart, y + 1, zeroX - fillStart, TURBO_BAR_HEIGHT - 2, vacuum);
-		// Point 0: trait blanc qui depasse de la barre.
-		tft.drawFastVLine(zeroX, y - 2, TURBO_BAR_HEIGHT + 4, TFT_WHITE);
-		prevData["radarTurboBar"] = cacheState;
+		const uint16_t orange = tft.color565(255, 140, 0);
+		const uint16_t red = tft.color565(255, 70, 52);	// meme rouge que le reste du theme
+		const int cx = COLUMN_CONTENT_WIDTH / 2;
+		const int cy = TURBO_GAUGE_CENTER_DY;
+		const int outer = TURBO_GAUGE_RADIUS;
+		const int inner = TURBO_GAUGE_RADIUS - TURBO_GAUGE_THICKNESS;
+
+		turboSprite.fillSprite(TFT_BLACK);
+		// Fond de l'arc (piste), puis remplissage.
+		turboSprite.fillArc(cx, cy, inner, outer, TURBO_GAUGE_START_DEGREES,
+			TURBO_GAUGE_START_DEGREES + TURBO_GAUGE_SWEEP_DEGREES, track);
+		if (vacuumDegrees > 0)
+			turboSprite.fillArc(cx, cy, inner, outer,
+				ZERO_DEGREES - vacuumDegrees, ZERO_DEGREES, vacuum);
+		if (pressureDegrees > 0)
+		{
+			// Remplissage par zones: blanc, puis orange, puis rouge, selon la position
+			// sur l'echelle (comme les zones d'un compte-tours).
+			const float zoneEnds[3] = {
+				PRESSURE_SWEEP * TURBO_GAUGE_ORANGE_FRACTION,
+				PRESSURE_SWEEP * TURBO_GAUGE_RED_FRACTION,
+				PRESSURE_SWEEP};
+			const uint16_t zoneColors[3] = {pressure, orange, red};
+			float zoneStart = 0.0f;
+			for (int zone = 0; zone < 3 && zoneStart < pressureDegrees; ++zone)
+			{
+				const float zoneEnd = min(zoneEnds[zone], static_cast<float>(pressureDegrees));
+				turboSprite.fillArc(cx, cy, inner, outer,
+					ZERO_DEGREES + zoneStart, ZERO_DEGREES + zoneEnd, zoneColors[zone]);
+				zoneStart = zoneEnds[zone];
+			}
+		}
+		// Point 0: trait blanc qui depasse de l'arc des deux cotes.
+		const float zeroRad = ZERO_DEGREES * DEG_TO_RAD;
+		turboSprite.drawLine(
+			cx + lroundf(cosf(zeroRad) * (inner - 2)), cy + lroundf(sinf(zeroRad) * (inner - 2)),
+			cx + lroundf(cosf(zeroRad) * (outer + 1)), cy + lroundf(sinf(zeroRad) * (outer + 1)),
+			TFT_WHITE);
+
+		turboSprite.setTextDatum(MC_DATUM);
+		turboSprite.setTextColor(TFT_WHITE, TFT_BLACK);
+		turboSprite.setTextSize(TURBO_VALUE_SCALE);
+		turboSprite.drawString(text, cx, cy + TURBO_VALUE_DY, 2);
+		turboSprite.setTextSize(1.0f);
+		turboSprite.setTextColor(tft.color565(120, 124, 128), TFT_BLACK);
+		turboSprite.drawString("bar", cx, cy + TURBO_UNIT_DY, 1);
+
+		turboSprite.pushSprite(LEFT_X + COLUMN_PADDING, cellY(TURBO_CELL) + TURBO_GAUGE_DY);
+		prevData["radarTurbo"] = cacheState;
+		releaseSpriteAfterThemePreview(turboSprite, spriteCreated);
 	}
 
 	// Couleur de texte des pneus: le bleu "froid" de tyreTemperatureColor() est
@@ -709,9 +790,6 @@ static constexpr int LAP_STRIP_CELLS_X = LAP_STRIP_X +
 			tft.drawString("R/F", rightLabelX + HANDLING_HEADER_LOCK_DX,
 				cellY(HANDLING_CELL) + COLUMN_LABEL_DY, 1);
 			tft.setTextSize(1.0f);
-			tft.setTextDatum(ML_DATUM);
-			tft.drawString("bar", labelX + COLUMN_CONTENT_WIDTH - TURBO_UNIT_WIDTH + 3,
-				cellY(TURBO_CELL) + TURBO_VALUE_DY + TURBO_VALUE_HEIGHT / 2, 1);
 			tft.setTextDatum(TL_DATUM);
 			tft.drawCentreString("GEAR", RADAR_CENTER_X, GEAR_LABEL_Y, 2);
 			tft.drawCentreString("km/h", RADAR_CENTER_X, 166, 2);
@@ -732,7 +810,7 @@ static constexpr int LAP_STRIP_CELLS_X = LAP_STRIP_X +
 			TFT_WHITE, 2, MR_DATUM, redraw, COLUMN_VALUE_SCALE, COLUMN_VALUE_SCALE);
 		drawRadarValue(valueX, cellValueY(2), COLUMN_CONTENT_WIDTH,
 			COLUMN_VALUE_HEIGHT, radarShortLapTime(state.bestLapTime),
-			"radarBest", TFT_WHITE, 2, ML_DATUM, redraw,
+			"radarBest", TFT_WHITE, 2, MR_DATUM, redraw,
 			COLUMN_VALUE_SCALE, COLUMN_VALUE_SCALE);
 		drawRadarValue(rightValueX, cellValueY(0), COLUMN_CONTENT_WIDTH,
 			COLUMN_VALUE_HEIGHT, state.fuelDisplayValue, "radarFuel",
@@ -750,7 +828,7 @@ static constexpr int LAP_STRIP_CELLS_X = LAP_STRIP_X +
 			COLUMN_VALUE_SCALE, COLUMN_VALUE_SCALE);
 
 		static const char *const handlingIds[HandlingTrace::PHASE_COUNT] = {
-			"radarHandling1", "radarHandling2", "radarHandling3"};
+			"radarHandling1", "radarHandling2", "radarHandling3", "radarHandling4"};
 		for (int i = 0; i < HandlingTrace::PHASE_COUNT; ++i)
 		{
 			uint16_t handlingColor = muted;
@@ -772,18 +850,7 @@ static constexpr int LAP_STRIP_CELLS_X = LAP_STRIP_X +
 		drawRadarLapStrip(state, redraw);
 		drawRadarPedals(state, redraw);
 
-		// Turbo: "--" pour une voiture sans turbo; arrondi au centieme sans "-0.00".
-		String turboText = "--";
-		if (isfinite(state.turboBoostBar))
-		{
-			const float rounded = roundf(state.turboBoostBar * 100.0f) / 100.0f;
-			turboText = String(rounded == 0.0f ? 0.0f : rounded, 2);
-		}
-		drawRadarValue(valueX, cellY(TURBO_CELL) + TURBO_VALUE_DY,
-			COLUMN_CONTENT_WIDTH - TURBO_UNIT_WIDTH, TURBO_VALUE_HEIGHT, turboText,
-			"radarTurbo", TFT_WHITE, 2, MR_DATUM, redraw,
-			TURBO_VALUE_SCALE, TURBO_VALUE_SCALE);
-		drawRadarTurboBar(state, redraw);
+		drawRadarTurboGauge(state, redraw);
 
 		uint16_t deltaColor = TFT_WHITE;
 		if (state.sessionBestLiveDeltaSeconds.startsWith("-")) deltaColor = green;

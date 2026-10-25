@@ -11,6 +11,8 @@
 // 14/10/2026 16:49 - Marche arriere: rapport 0 = R, 15 = N (le drapeau InGear ne distinguait pas R de N) ; historique ramene a 7 tours
 // 16/10/2026 14:08 - Pit: suppression du test du regime moteur a l'arret (ralenti de plusieurs milliers de tr/min sur certaines voitures)
 // 16/10/2026 14:37 - LED RGB (carte 3248S035) : clignotement bleu a l'approche de minAlertRPM quand le regime monte ; rpmAlertMinRpm dans DashboardState ; remise en forme de la phase d'arret du pit
+// 25/10/2026 16:20 - Pression turbo minimale de la course (turboBoostMinBar) : GT7 peut descendre a -2 bar ou plus, l'echelle de depression du cadran TURBO s'y adapte
+// 25/10/2026 14:45 - Mode demo : lever de pied (ni frein ni accelerateur) juste avant le freinage, pour alimenter la nouvelle phase L de l'analyse de comportement
 // 23/10/2026 15:12 - Ecran d'attente : "By Alain Vautrain" centre sous le titre, a la hauteur de la version
 // 23/10/2026 15:05 - Parametres de detection du pit deplaces dans include/tuning.h (valeurs d'Alain reprises : LAP_PIT_STABLE_MS 1000, LAP_PIT_MAX_KMH 80)
 // 23/10/2026 15:00 - Pit: LAP_PIT_MAX_KMH porte a 80 km/h (reglage d'Alain, limiteur plus rapide sur certains circuits)
@@ -257,8 +259,12 @@ struct DashboardState
 	String remainingTime = "--:--";	
 	// Pression turbo relative en bar (negative en deceleration) ; NAN = voiture sans turbo.
 	float turboBoostBar = NAN;
-	// Plus haute pression vue depuis le debut de la course (echelle de la barre du theme Radar).
+	// Plus haute pression vue depuis le debut de la course (echelle du cadran du theme Radar).
 	float turboBoostMaxBar = 0.0f;
+	// Plus forte depression vue depuis le debut de la course. Physiquement on ne peut pas
+	// descendre sous -1 bar (vide absolu), mais GT7 envoie jusqu'a -2 bar ou plus sur
+	// certaines voitures : l'echelle de depression du cadran suit donc la valeur vue.
+	float turboBoostMinBar = 0.0f;
 	// Analyse de comportement (sous/survirage, DGL) par phase de virage, affichee par le theme Radar.
 	HandlingTrace handling;
 	String gameRunning = "False";
@@ -279,6 +285,7 @@ struct DashboardState
 		}
 		turboBoostBar = boostBar;
 		if (boostBar > turboBoostMaxBar) turboBoostMaxBar = boostBar;
+		if (boostBar < turboBoostMinBar) turboBoostMinBar = boostBar;
 	}
 
 	void clearLapHistory()
@@ -966,6 +973,7 @@ public:
 			clearLapHistory();
 			lapTracker = LapTracker();
 			turboBoostMaxBar = 0.0f;
+			turboBoostMinBar = 0.0f;
 		}
 
 		// Fin de tour: lapCount augmente (le faux passage 0 -> 1 du départ est ignoré).
@@ -1495,8 +1503,10 @@ public:
 		// Pedales : l'interface les lit dans absLevel/absFilteredLevel (frein)
 		// et tcLevel/tcFilteredLevel (accelerateur).
 		const bool braking = gearPhase >= 0.9f;
-		// Accelerateur partiel avant le freinage: phase "milieu de virage" de HandlingTrace.
-		const int throttle = braking ? 15 : (gearPhase >= 0.7f ? 30 : 100);
+		// Lever de pied juste avant le freinage: phase "L" de HandlingTrace.
+		const bool lifting = !braking && gearPhase >= 0.85f;
+		// Accelerateur partiel avant le lever de pied: phase "milieu de virage" de HandlingTrace.
+		const int throttle = braking ? 15 : (lifting ? 0 : (gearPhase >= 0.7f ? 30 : 100));
 		const int brakeInput = braking ? 80 : 0;
 		tcLevel = String(throttle);
 		tcFilteredLevel = String(throttle * 9 / 10);
@@ -1544,13 +1554,13 @@ public:
 		updateTurbo(true, braking ? -0.6f : 0.1f + 1.1f * gearPhase);
 
 		// Comportement: virage gauche/droite toutes les 8 s ; sous-virage au freinage
-		// (lacet a 85 % du neutre), neutre a accelerateur partiel, survirage a pleine
-		// charge (120 %).
+		// (lacet a 85 % du neutre), leger sous-virage au lever de pied (95 %), neutre a
+		// accelerateur partiel, survirage a pleine charge (120 %).
 		{
 			const float demoSpeedMs = (40.0f + (gearIndex - 1) * 38.0f + gearPhase * 38.0f) / 3.6f;
 			const float demoWheelBase = 2.65f;
 			const float demoSteer = 0.08f * sinf(now / 1273.0f);
-			const float demoYawRatio = braking ? 0.85f : (throttle < 50 ? 1.0f : 1.2f);
+			const float demoYawRatio = braking ? 0.85f : (lifting ? 0.95f : (throttle < 50 ? 1.0f : 1.2f));
 			const float demoAngular[3] = {0.0f,
 				demoYawRatio * demoSpeedMs * tanf(demoSteer) / demoWheelBase, 0.0f};
 			const float demoSteerAngles[2] = {demoSteer, demoSteer};
