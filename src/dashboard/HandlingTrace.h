@@ -1,3 +1,4 @@
+// 25/10/2026 20:50 - reset() : moyennes remises a zero a chaque nouvelle session (voiture qui revient en piste, nouvelle course) pour ne plus afficher les valeurs de la session precedente
 // 25/10/2026 14:45 - Phase d'entree separee en F (freinage : repartition de freinage + DGL Decel) et L (lever de pied : DGL Decel seul) -> 4 lignes
 // 23/10/2026 15:05 - Seuils ajustables (virage, phases, moyennes, couleurs) deplaces dans include/tuning.h
 // 23/10/2026 00:06 - Affichage par phase de virage (entree / milieu / sortie) : equilibre Y/N et blocage du differentiel arriere R/F, moyennes glissantes ; trace brute conservee sur le port serie
@@ -70,6 +71,18 @@ public:
 
 	String lines[PHASE_COUNT] = {"F --   --", "L --   --", "M --   --", "S --   --"};
 	Tendency tendency[PHASE_COUNT] = {TENDENCY_NONE, TENDENCY_NONE, TENDENCY_NONE, TENDENCY_NONE};
+
+	// Nouvelle session : on oublie les moyennes, toutes les lignes repassent a "--".
+	void reset()
+	{
+		for (int p = 0; p < PHASE_COUNT; ++p)
+		{
+			balance_[p] = Average();
+			lock_[p] = Average();
+		}
+		lastSample_ = 0;
+		refreshLines();
+	}
 
 	void update(const Input &in, uint32_t now)
 	{

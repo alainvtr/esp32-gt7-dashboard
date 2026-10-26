@@ -11,6 +11,7 @@
 // 14/10/2026 16:49 - Marche arriere: rapport 0 = R, 15 = N (le drapeau InGear ne distinguait pas R de N) ; historique ramene a 7 tours
 // 16/10/2026 14:08 - Pit: suppression du test du regime moteur a l'arret (ralenti de plusieurs milliers de tr/min sur certaines voitures)
 // 16/10/2026 14:37 - LED RGB (carte 3248S035) : clignotement bleu a l'approche de minAlertRPM quand le regime monte ; rpmAlertMinRpm dans DashboardState ; remise en forme de la phase d'arret du pit
+// 25/10/2026 20:50 - Analyse HANDLING et debit remis a zero a chaque nouvelle session (retour en piste) et nouvelle course ; debit en % du reservoir par minute (fuelLevel GT7 = pourcentage)
 // 25/10/2026 16:40 - Debit de carburant instantane en L/min (FuelFlow, essai "debitmetre") dans DashboardState.fuelFlow, calcule a chaque paquet hors pause et simule en mode demo
 // 25/10/2026 16:20 - Pression turbo minimale de la course (turboBoostMinBar) : GT7 peut descendre a -2 bar ou plus, l'echelle de depression du cadran TURBO s'y adapte
 // 25/10/2026 14:45 - Mode demo : lever de pied (ni frein ni accelerateur) juste avant le freinage, pour alimenter la nouvelle phase L de l'analyse de comportement
@@ -269,7 +270,7 @@ struct DashboardState
 	float turboBoostMinBar = 0.0f;
 	// Analyse de comportement (sous/survirage, DGL) par phase de virage, affichee par le theme Radar.
 	HandlingTrace handling;
-	// Debit de carburant instantane (L/min), affiche en petit dans la case FUEL du theme Radar.
+	// Debit de carburant instantane (% du reservoir par minute), affiche en petit dans la case FUEL du theme Radar.
 	FuelFlow fuelFlow;
 	String gameRunning = "False";
 	// Historique glissant des derniers tours (affiche par le bandeau du theme Radar).
@@ -978,6 +979,7 @@ public:
 			lapTracker = LapTracker();
 			turboBoostMaxBar = 0.0f;
 			turboBoostMinBar = 0.0f;
+			handling.reset();
 		}
 
 		// Fin de tour: lapCount augmente (le faux passage 0 -> 1 du départ est ignoré).
@@ -1183,11 +1185,12 @@ public:
 		if (validIceFuel)
 			derivedMetrics.fuel.update(data.fuelLevel, currentLap);
 
-		// Debit instantane (L/min) : thermique uniquement, et pas pendant la pause
-		// (le temps s'arrete mais les paquets continuent d'arriver).
+		// Debit instantane (% du reservoir par minute) : thermique uniquement, et pas
+		// pendant la pause (le temps s'arrete mais les paquets continuent d'arriver).
 		const bool gamePaused = (static_cast<uint16_t>(data.flags) &
 			static_cast<uint16_t>(SimulatorFlags::Paused)) != 0;
-		fuelFlow.update(data.fuelLevel, validIceFuel && !gamePaused, millis());
+		fuelFlow.update(validIceFuel ? data.fuelLevel / data.fuelCapacity * 100.0f : NAN,
+			validIceFuel && !gamePaused, millis());
 
 		const float estimatedFuelLaps = validIceFuel
 			? derivedMetrics.fuel.remainingLaps()
@@ -1456,6 +1459,9 @@ public:
 		if (gameJustStarted)
 		{
             resetLapDifference();
+			// Nouvelle session (retour en piste) : pas de valeurs de la session precedente.
+			handling.reset();
+			fuelFlow.reset();
 			screenSleeping = false;
 			screenOffByUser = false;
 
@@ -1562,8 +1568,8 @@ public:
 		remainingTime = "18:42";
 		// Turbo: depression au freinage, pression qui monte avec le regime ailleurs.
 		updateTurbo(true, braking ? -0.6f : 0.1f + 1.1f * gearPhase);
-		// Debit de carburant: suit l'accelerateur (0,3 L/min au ralenti, 3 L/min a fond).
-		fuelFlow.litersPerMinute = 0.3f + 2.7f * throttle / 100.0f;
+		// Debit de carburant: suit l'accelerateur (0,3 %/min au ralenti, 3 %/min a fond).
+		fuelFlow.percentPerMinute = 0.3f + 2.7f * throttle / 100.0f;
 
 		// Comportement: virage gauche/droite toutes les 8 s ; sous-virage au freinage
 		// (lacet a 85 % du neutre), leger sous-virage au lever de pied (95 %), neutre a

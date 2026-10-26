@@ -1,3 +1,5 @@
+// 25/10/2026 21:00 - Case FUEL : debit et unite "%/m" sur une seule ligne (valeur police 1 x1,2), bas des textes aligne sur celui du pourcentage
+// 25/10/2026 20:50 - Case FUEL : libelle REM % FUEL (REM EV inchange), debit en plus petit (police 1 x1,4) avec l'unite %/min dessous (GT7 donne le niveau en % du reservoir, pas en litres)
 // 25/10/2026 16:40 - Case FUEL : debit de carburant instantane (L/min) en petit a gauche du pourcentage (essai "debitmetre")
 // 25/10/2026 16:30 - Cadran TURBO : echelle de depression = plus forte depression de la course (GT7 peut envoyer -2 bar ou plus), jamais moins de 1 bar
 // 25/10/2026 16:25 - Cellule TURBO : cadran rond (arc de 240 degres, point 0 au quart gauche, depression en gris, pression blanc / orange / rouge) avec la valeur et "bar" au centre, a la place de la barre plate
@@ -110,10 +112,20 @@ static_assert(TURBO_GAUGE_CENTER_DY - TURBO_GAUGE_RADIUS >= 0 &&
 	TURBO_GAUGE_DY + TURBO_GAUGE_HEIGHT <= COLUMN_LAST_CELL_HEIGHT,
 	"cadran TURBO trop grand pour la cellule");
 
-// Case FUEL (colonne droite, en haut) : debit instantane en L/min, en petit a gauche
-// du pourcentage. Le pourcentage ("100" = 30 px environ) garde les 42 px de droite.
-static constexpr int FUEL_FLOW_WIDTH = 46;
-static constexpr int FUEL_FLOW_TEXT_DY = 3;	// bas du petit texte aligne sur la valeur
+// Case FUEL (colonne droite, en haut) : debit instantane en % du reservoir par minute,
+// en petit a gauche du pourcentage, sur une seule ligne : "2.45 %/m". Le pourcentage
+// ("100" = 33 px environ) garde les 38 px de droite.
+static constexpr int FUEL_FLOW_WIDTH = 50;
+static constexpr int FUEL_FLOW_UNIT_WIDTH = 18;	// "%/m" en police 1 (3 x 6 px)
+// Valeur: police 1 x1,2 -> "12.5" = 29 px, juste avant l'unite (3 px d'ecart).
+static constexpr float FUEL_FLOW_SCALE = 1.2f;
+static constexpr int FUEL_FLOW_VALUE_WIDTH = FUEL_FLOW_WIDTH - FUEL_FLOW_UNIT_WIDTH - 3;
+// Bas des petits textes aligne sur le bas du pourcentage (police 2 x1,35, ~22 px de
+// haut, centree dans la zone) : decalages depuis le milieu de la zone de valeur.
+static constexpr int FUEL_FLOW_VALUE_DY = 6;	// texte de ~10 px de haut
+static constexpr int FUEL_FLOW_UNIT_DY = 7;	// texte de 8 px de haut
+static_assert(4 * 6 * FUEL_FLOW_SCALE <= FUEL_FLOW_VALUE_WIDTH,	// 4 caracteres de 6 px (police 1)
+	"debit FUEL trop large");
 
 // Cellule HANDLING: colonne droite, sous CURRENT. Une ligne par phase de virage
 // en police 1 (6x8 px a l'echelle 1, 13 caracteres au plus) :
@@ -787,7 +799,9 @@ static constexpr int LAP_STRIP_CELLS_X = LAP_STRIP_X +
 			tft.drawString("BEST", labelX, cellY(2) + COLUMN_LABEL_DY, 1);
 			tft.drawString("PEDALS", labelX, cellY(PEDALS_CELL) + COLUMN_LABEL_DY, 1);
 			tft.drawString("TURBO", labelX, cellY(TURBO_CELL) + COLUMN_LABEL_DY, 1);
-			tft.drawString("REM " + state.fuelLabel, rightLabelX, cellY(0) + COLUMN_LABEL_DY, 1);
+			// FUEL: GT7 donne le niveau en % du reservoir ; EV: energie restante en kWh.
+			tft.drawString(state.fuelIsEV ? "REM EV" : "REM % FUEL",
+				rightLabelX, cellY(0) + COLUMN_LABEL_DY, 1);
 			tft.drawString("REM LAPS", rightLabelX, cellY(1) + COLUMN_LABEL_DY, 1);
 			tft.drawString("REM TIME", rightLabelX, cellY(2) + COLUMN_LABEL_DY, 1);
 			tft.drawString("CURRENT", rightLabelX, cellY(3) + COLUMN_LABEL_DY, 1);
@@ -796,6 +810,13 @@ static constexpr int LAP_STRIP_CELLS_X = LAP_STRIP_X +
 			tft.drawString("R/F", rightLabelX + HANDLING_HEADER_LOCK_DX,
 				cellY(HANDLING_CELL) + COLUMN_LABEL_DY, 1);
 			tft.setTextSize(1.0f);
+			// Unite du debit de carburant (pas de debit pour une voiture electrique).
+			if (!state.fuelIsEV)
+			{
+				tft.setTextDatum(ML_DATUM);
+				tft.drawString("%/m", rightLabelX + FUEL_FLOW_WIDTH - FUEL_FLOW_UNIT_WIDTH,
+					cellValueY(0) + COLUMN_VALUE_HEIGHT / 2 + FUEL_FLOW_UNIT_DY, 1);
+			}
 			tft.setTextDatum(TL_DATUM);
 			tft.drawCentreString("GEAR", RADAR_CENTER_X, GEAR_LABEL_Y, 2);
 			tft.drawCentreString("km/h", RADAR_CENTER_X, 166, 2);
@@ -822,13 +843,13 @@ static constexpr int LAP_STRIP_CELLS_X = LAP_STRIP_X +
 		String fuelFlowText;
 		if (!state.fuelIsEV)
 		{
-			const float flow = state.fuelFlow.litersPerMinute;
+			const float flow = state.fuelFlow.percentPerMinute;
 			fuelFlowText = isfinite(flow) ? String(flow, flow < 10.0f ? 2 : 1) : "--";
 		}
-		drawRadarValue(rightValueX, cellValueY(0), FUEL_FLOW_WIDTH,
+		drawRadarValue(rightValueX, cellValueY(0), FUEL_FLOW_VALUE_WIDTH,
 			COLUMN_VALUE_HEIGHT, fuelFlowText, "radarFuelFlow",
-			tft.color565(150, 200, 230), 2, ML_DATUM, redraw, 1.0f, 1.0f,
-			FUEL_FLOW_TEXT_DY);
+			tft.color565(150, 200, 230), 1, ML_DATUM, redraw,
+			FUEL_FLOW_SCALE, FUEL_FLOW_SCALE, FUEL_FLOW_VALUE_DY);
 		drawRadarValue(rightValueX + FUEL_FLOW_WIDTH, cellValueY(0),
 			COLUMN_CONTENT_WIDTH - FUEL_FLOW_WIDTH,
 			COLUMN_VALUE_HEIGHT, state.fuelDisplayValue, "radarFuel",

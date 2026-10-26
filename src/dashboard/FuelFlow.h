@@ -1,11 +1,15 @@
+// 25/10/2026 20:50 - Debit exprime en % du reservoir par minute (et non en litres) : GT7 envoie fuelCapacity = 100 pour toutes les voitures thermiques, fuelLevel est donc un pourcentage
 // 25/10/2026 16:40 - Creation : debit de carburant instantane en L/min (essai "debitmetre"), calcule sur une fenetre glissante de ~2 s a partir du niveau envoye a chaque paquet
 #pragma once
 
 #include <Arduino.h>
 #include <math.h>
 
-// Debit de carburant instantane (L/min), a partir de fuelLevel (litres) que GT7
-// envoie a chaque paquet (~60 par seconde).
+// Debit de carburant instantane, en % du reservoir par minute, a partir du niveau
+// que GT7 envoie a chaque paquet (~60 par seconde). GT7 annonce une capacite de 100
+// pour toutes les voitures thermiques (5 pour les karts) quelle que soit la taille
+// reelle du reservoir : son "fuelLevel" n'est pas en litres. L'appelant passe donc
+// le niveau en % (fuelLevel / fuelCapacity x 100), valable aussi pour les karts.
 //
 // Un echantillon est garde toutes les FUEL_FLOW_SAMPLE_MS ; le debit est la baisse
 // du niveau entre le plus ancien et le plus recent echantillon de la fenetre,
@@ -15,8 +19,8 @@
 // Remise a zero (affichage "--") :
 //  - niveau invalide, voiture electrique ou jeu en pause (appelant : valid = false) ;
 //  - trou de telemetrie > FUEL_FLOW_MAX_GAP_MS (menus, perte Wi-Fi) ;
-//  - niveau qui remonte de plus de FUEL_FLOW_REFUEL_L (ravitaillement) ;
-//  - niveau qui chute de plus de FUEL_FLOW_MAX_DROP_L entre 2 echantillons (changement
+//  - niveau qui remonte de plus de FUEL_FLOW_REFUEL_PCT (ravitaillement) ;
+//  - niveau qui chute de plus de FUEL_FLOW_MAX_DROP_PCT entre 2 echantillons (changement
 //    de voiture ou de course : aucun moteur ne consomme autant en 0,2 s).
 class FuelFlow
 {
@@ -25,19 +29,19 @@ public:
 	static constexpr int FUEL_FLOW_SAMPLES = 11;	// 10 intervalles = fenetre de 2 s
 	static constexpr int FUEL_FLOW_MIN_SAMPLES = 6;	// 1 s de donnees avant d'afficher
 	static constexpr uint32_t FUEL_FLOW_MAX_GAP_MS = 500;
-	static constexpr float FUEL_FLOW_REFUEL_L = 0.05f;
-	static constexpr float FUEL_FLOW_MAX_DROP_L = 0.5f;	// = 150 L/min sur 0,2 s
+	static constexpr float FUEL_FLOW_REFUEL_PCT = 0.05f;
+	static constexpr float FUEL_FLOW_MAX_DROP_PCT = 0.5f;	// = 150 %/min sur 0,2 s
 
-	// NAN tant qu'il n'y a pas assez de donnees.
-	float litersPerMinute = NAN;
+	// % du reservoir par minute ; NAN tant qu'il n'y a pas assez de donnees.
+	float percentPerMinute = NAN;
 
 	void reset()
 	{
 		count_ = 0;
-		litersPerMinute = NAN;
+		percentPerMinute = NAN;
 	}
 
-	void update(float fuelLiters, bool valid, uint32_t now)
+	void update(float fuelPercent, bool valid, uint32_t now)
 	{
 		const bool gap = lastSeen_ != 0 && now - lastSeen_ > FUEL_FLOW_MAX_GAP_MS;
 		lastSeen_ = now;
@@ -50,13 +54,13 @@ public:
 		if (count_ > 0)
 		{
 			const Sample &last = sample(count_ - 1);
-			if (fuelLiters > last.fuel + FUEL_FLOW_REFUEL_L ||
-				fuelLiters < last.fuel - FUEL_FLOW_MAX_DROP_L)
+			if (fuelPercent > last.fuel + FUEL_FLOW_REFUEL_PCT ||
+				fuelPercent < last.fuel - FUEL_FLOW_MAX_DROP_PCT)
 				reset();	// ravitaillement ou saut de niveau : on repart du nouveau niveau
 			else if (now - last.time < FUEL_FLOW_SAMPLE_MS)
 				return;
 		}
-		push({fuelLiters, now});
+		push({fuelPercent, now});
 
 		if (count_ < FUEL_FLOW_MIN_SAMPLES) return;
 		const Sample &oldest = sample(0);
@@ -64,7 +68,7 @@ public:
 		const float minutes = (newest.time - oldest.time) / 60000.0f;
 		if (minutes <= 0.0f) return;
 		// Jamais negatif : une legere remontee (arrondi du jeu) donne 0.
-		litersPerMinute = fmaxf(0.0f, (oldest.fuel - newest.fuel) / minutes);
+		percentPerMinute = fmaxf(0.0f, (oldest.fuel - newest.fuel) / minutes);
 	}
 
 private:
