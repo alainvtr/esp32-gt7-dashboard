@@ -2,6 +2,7 @@
 // 02/10/2026 16:33 - DASHBOARD_TOUCH_ROTATION_OFFSET passe de 6 a 0 : le tactile etait tourne de 180 degres par rapport a l'affichage sur la carte 3248S035R.
 // 02/10/2026 16:46 - DASHBOARD_TOUCH_ROTATION_OFFSET passe de 0 a 4 : avec 0 le haut/bas du tactile restait inverse (il faut inverser X et Y, rotation 7 dans LovyanGFX).
 // 16/10/2026 14:37 - Broches de la LED RGB de la carte (R 4, V 16, B 17, allumee a l'etat bas) pour le voyant d'approche du seuil d'alerte regime
+// 27/10/2026 19:30 - Commentaires mis a jour : seule carte supportee (profil 2432S028 supprime), les ecrans de reglages et d'attente restent en 320x240, le theme Radar utilise tout le 480x320
 // 20/10/2026 16:49 - LED RGB ressoudee tournee de 180 degres (montee a l'envers d'origine) : vert et bleu echanges, V 17 et B 16
 #pragma once
 
@@ -9,22 +10,20 @@
 
 #include <LovyanGFX.hpp>
 
-// Carte Sunton ESP32-3248S035 (variante R = tactile RESISTIF XPT2046).
-// Selectionnee via le flag de build -DBOARD_ESP32_3248S035=1 (voir platformio.ini,
-// environnement esp32-3248s035) et incluse depuis SHCustomProtocol.h.
+// Carte Sunton ESP32-3248S035 (variante R = tactile RESISTIF XPT2046), seule carte
+// supportee par le fork. Incluse depuis SHCustomProtocol.h.
 //
-// Differences par rapport a la carte ESP32-2432S028 (fichier LGFX_ESP32_esp32-2432s028.hpp) :
-//  - Controleur ST7796, 320x480 en natif (au lieu de ILI9341/ST7789 240x320)
-//  - Retroeclairage sur GPIO 27 (et non 21)
+// Particularites de la carte :
+//  - Controleur ST7796, 320x480 en natif (480x320 une fois en paysage)
+//  - Retroeclairage sur GPIO 27
 //  - Le tactile XPT2046 partage le bus SPI de l'ecran (CLK 14, MOSI 13, MISO 12),
-//    seul son CS (GPIO 33) lui est propre. Il n'a plus de bus dedie 25/32/39.
+//    seul son CS (GPIO 33) lui est propre.
 //  - RST de l'ecran relie a EN (pas de GPIO) => pin_rst = -1
 //
-// Les themes dessinent toujours dans une zone 320x240 (coin haut-gauche de l'ecran
-// une fois en paysage 480x320) : le reste de l'ecran reste noir pour l'instant.
+// Le theme Radar utilise tout l'ecran 480x320 ; les ecrans d'attente, de connexion
+// et de reglages dessinent encore dans la zone 320x240 en haut a gauche.
 
-// Valeurs de depart, a valider sur la carte reelle (memes valeurs que l'environnement
-// par defaut ILI9341 de la carte 2.8"). Si l'affichage est a l'envers : essayer 1 au lieu de 3.
+// Valeurs validees sur la carte. Si l'affichage est a l'envers : essayer 1 au lieu de 3.
 // Si le tactile est inverse/miroir : ajuster DASHBOARD_TOUCH_ROTATION_OFFSET (0 a 7).
 static constexpr uint8_t DASHBOARD_DISPLAY_ROTATION = 3;
 static constexpr uint8_t DASHBOARD_TOUCH_ROTATION_OFFSET = 4;

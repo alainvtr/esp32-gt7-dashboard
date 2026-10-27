@@ -1,3 +1,4 @@
+// 27/10/2026 19:30 - Nettoyage (theme Radar seul) : plus de liberation des sprites pour l'apercu de theme (menu supprime) ; couleurs de temperature des pneus reprises de l'ancien ClassicTheme.inc
 // 25/10/2026 21:00 - Case FUEL : debit et unite "%/m" sur une seule ligne (valeur police 1 x1,2), bas des textes aligne sur celui du pourcentage
 // 25/10/2026 20:50 - Case FUEL : libelle REM % FUEL (REM EV inchange), debit en plus petit (police 1 x1,4) avec l'unite %/min dessous (GT7 donne le niveau en % du reservoir, pas en litres)
 // 25/10/2026 16:40 - Case FUEL : debit de carburant instantane (L/min) en petit a gauche du pourcentage (essai "debitmetre")
@@ -316,7 +317,6 @@ static constexpr int LAP_STRIP_CELLS_X = LAP_STRIP_X +
 		sprite.setTextSize(1.0f);
 		sprite.pushSprite(x, y);
 		prevData[id] = cacheState;
-		releaseSpriteAfterThemePreview(sprite, spriteCreated);
 	}
 
 	void drawRadarPedals(const DashboardState &state, bool forceUpdate)
@@ -362,7 +362,6 @@ static constexpr int LAP_STRIP_CELLS_X = LAP_STRIP_X +
 		}
 		pedalSprite.pushSprite(LEFT_X + COLUMN_PADDING, cellY(PEDALS_CELL) + PEDALS_DY);
 		prevData["radarPedals"] = cacheState;
-		releaseSpriteAfterThemePreview(pedalSprite, spriteCreated);
 	}
 
 	// Cadran TURBO: le cache porte sur le texte et les angles remplis (au degre),
@@ -459,7 +458,72 @@ static constexpr int LAP_STRIP_CELLS_X = LAP_STRIP_X +
 
 		turboSprite.pushSprite(LEFT_X + COLUMN_PADDING, cellY(TURBO_CELL) + TURBO_GAUGE_DY);
 		prevData["radarTurbo"] = cacheState;
-		releaseSpriteAfterThemePreview(turboSprite, spriteCreated);
+	}
+
+	uint16_t interpolateTyreColor(
+		uint8_t redStart,
+		uint8_t greenStart,
+		uint8_t blueStart,
+		uint8_t redEnd,
+		uint8_t greenEnd,
+		uint8_t blueEnd,
+		float amount)
+	{
+		amount = constrain(amount, 0.0f, 1.0f);
+
+		return tft.color565(
+			static_cast<uint8_t>(redStart + (redEnd - redStart) * amount),
+			static_cast<uint8_t>(greenStart + (greenEnd - greenStart) * amount),
+			static_cast<uint8_t>(blueStart + (blueEnd - blueStart) * amount));
+	}
+
+	// Echelle de couleur des temperatures de pneus (reprise de l'ancien ClassicTheme.inc) :
+	// bleu froid -> cyan -> vert (plage ideale) -> jaune -> rouge.
+	uint16_t tyreTemperatureColor(float temperature)
+	{
+		if (!isfinite(temperature) || temperature <= 0.0f)
+		{
+			return TFT_DARKGREY;
+		}
+
+		if (temperature <= 50.0f)
+		{
+			return tft.color565(0, 20, 120);
+		}
+
+		if (temperature < 65.0f)
+		{
+			return interpolateTyreColor(
+				0, 20, 120,
+				0, 200, 255,
+				(temperature - 50.0f) / 15.0f);
+		}
+
+		if (temperature < 85.0f)
+		{
+			return interpolateTyreColor(
+				0, 200, 255,
+				0, 220, 60,
+				(temperature - 65.0f) / 20.0f);
+		}
+
+		if (temperature < 92.5f)
+		{
+			return interpolateTyreColor(
+				0, 220, 60,
+				255, 220, 0,
+				(temperature - 85.0f) / 7.5f);
+		}
+
+		if (temperature < 100.0f)
+		{
+			return interpolateTyreColor(
+				255, 220, 0,
+				255, 0, 0,
+				(temperature - 92.5f) / 7.5f);
+		}
+
+		return TFT_RED;
 	}
 
 	// Couleur de texte des pneus: le bleu "froid" de tyreTemperatureColor() est
@@ -533,7 +597,6 @@ static constexpr int LAP_STRIP_CELLS_X = LAP_STRIP_X +
 		}
 		sprite.pushSprite(TYRE_VALUES_X, TYRE_SPRITE_Y);
 		prevData["radarTyres"] = cacheState;
-		releaseSpriteAfterThemePreview(sprite, spriteCreated);
 	}
 
 	// Bandeau horizontal: LAP_STRIP_COUNT cellules (numero du tour au-dessus,

@@ -1,3 +1,5 @@
+// 28/10/2026 00:30 - REM TIME calcule en course (il n'etait alimente qu'en mode demo, donc toujours "--:--") : tours de carburant restants x temps moyen des tours propres (hors pit) de l'historique
+// 27/10/2026 19:30 - Nettoyage : theme Radar seul (autres themes, menu de selection et apercu supprimes), carte 3248S035 seule (support 2432S028 retire), reglages ouverts directement sur l'ecran SETTINGS (luminosite, reset Wi-Fi) ; aides d'ecran (fondu, toucher) reprises de ClassicTheme.inc
 // 21/09/2026 14:54 - Selection du profil LGFX via BOARD_ESP32_3248S035 pour supporter la carte ESP32-3248S035R (ST7796 320x480) en plus de la 2432S028.
 // 02/10/2026 20:46 - Ajout du mode demo (flag DASHBOARD_DEMO_MODE) : etat du dashboard anime sans telemetrie GT7 + cadre de test des limites de l'ecran.
 // 06/10/2026 16:37 - Historique des derniers tours pour le bandeau du thème Radar (8 = LAP_STRIP_COUNT)
@@ -35,11 +37,7 @@
 // selezione la configurazione nella cartella lgfx_user
 // #include <LGFX_AUTODETECT.hpp>  // Preparare la classe "LGFX"
 // #include <lgfx_user/LGFX_ESP8266_sample.hpp>
-#if defined(BOARD_ESP32_3248S035)
 #include <lgfx_user/LGFX_ESP32_esp32-3248s035.hpp>
-#else
-#include <lgfx_user/LGFX_ESP32_esp32-2432s028.hpp>
-#endif
 //  dashboard + free deck grafica
 #include <Arduino.h>
 #include <Preferences.h>
@@ -66,172 +64,21 @@ static const int X_CENTER = SCREEN_WIDTH / 2;
 static const char *const GT7_EXTENDED_TITLE = "GT7 Extended Dashboard";
 static const char *const GT7_EXTENDED_AUTHOR = "By Alain Vautrain";
 static const char *const GT7_ORIGIN_CREDIT = "Based on GT7 Dash by caa1211";
-// Ligne du credit, en bas d'ecran. Sur la carte 3248S035 (320 px de haut), elle
-// passe 20 px sous la zone 320x240 des ecrans ; sur la carte 2,8" (240 px), elle
-// reste en bas de l'ecran pour rester visible.
-#if defined(BOARD_ESP32_3248S035)
+// Ligne du credit, en bas d'ecran : 20 px sous la zone 320x240 des ecrans d'attente
+// et de reglages (l'ecran de la carte 3248S035 fait 320 px de haut).
 static const int CREDIT_Y = SCREEN_HEIGHT - 12 + 20;
-#else
-static const int CREDIT_Y = SCREEN_HEIGHT - 12;
-#endif
-static const int Y_CENTER = SCREEN_HEIGHT / 2;
-static const int ROWS = 5;
-static const int COLS = 5;
-static const int CELL_WIDTH = SCREEN_WIDTH / COLS;
-static const int HALF_CELL_WIDTH = CELL_WIDTH / 2;
-static const int CELL_HEIGHT = SCREEN_HEIGHT / ROWS;
-static const int HALF_CELL_HEIGHT = CELL_HEIGHT / 2;
-static const int COL[] = {0, CELL_WIDTH, CELL_WIDTH * 2, CELL_WIDTH * 3, CELL_WIDTH * 4, CELL_WIDTH * 6, CELL_WIDTH * 7};
-static const int ROW[] = {0, CELL_HEIGHT, CELL_HEIGHT * 2, CELL_HEIGHT * 3, CELL_HEIGHT * 4, CELL_HEIGHT * 6, CELL_HEIGHT * 7};
 
-// Explicit 320x240 dashboard grid. The side regions are mirror images and all
-// central elements derive from CENTER_X; no center alignment depends on them.
-namespace DashboardLayout
-{
-	static constexpr int WIDTH = 320;
-	static constexpr int HEIGHT = 240;
-	static constexpr int CENTER_X = 160;
-	static constexpr int OUTER_MARGIN = 4;
-	static constexpr int SIDE_COLUMN_WIDTH = 100;
-	static constexpr int SIDE_WIDTH = SIDE_COLUMN_WIDTH - OUTER_MARGIN * 2;
-	static constexpr int LEFT_X = OUTER_MARGIN;
-	static constexpr int RIGHT_X = WIDTH - SIDE_COLUMN_WIDTH + OUTER_MARGIN;
-	static constexpr int LEFT_DIVIDER_X = SIDE_COLUMN_WIDTH;
-	static constexpr int RIGHT_DIVIDER_X = WIDTH - SIDE_COLUMN_WIDTH;
-	static constexpr int INNER_PADDING = 1;
-	static constexpr int LEFT_TEXT_X = LEFT_X + INNER_PADDING;
-	static constexpr int RIGHT_TEXT_X = RIGHT_X + INNER_PADDING;
-
-	static constexpr int RPM_BOTTOM = 48;
-	static constexpr int CONTENT_TOP = 50;
-	static constexpr int CONTENT_BOTTOM = 192;
-	static constexpr int BOTTOM_DIVIDER_Y = 193;
-	static constexpr int SIDE_PANEL_Y = CONTENT_TOP;
-	static constexpr int SIDE_PANEL_H = CONTENT_BOTTOM - CONTENT_TOP + 1;
-	static constexpr int LEFT_PANEL_X = 2;
-	static constexpr int RIGHT_PANEL_X = RIGHT_DIVIDER_X + 1;
-	static constexpr int LEFT_PANEL_W = LEFT_DIVIDER_X - LEFT_PANEL_X - 1;
-	static constexpr int RIGHT_PANEL_W = WIDTH - RIGHT_PANEL_X - 2;
-	static constexpr int BOTTOM_PANEL_X = 2;
-	static constexpr int BOTTOM_PANEL_Y = 194;
-	static constexpr int BOTTOM_PANEL_W = WIDTH - 4;
-	static constexpr int BOTTOM_PANEL_H = HEIGHT - BOTTOM_PANEL_Y - 2;
-
-	static constexpr int GEAR_CENTER_X = CENTER_X;
-	static constexpr int GEAR_CENTER_Y = 108;
-	static constexpr int GEAR_RADIUS = 53;
-	static constexpr int GEAR_VALUE_W = 104;
-	static constexpr int GEAR_VALUE_H = 100;
-	static constexpr int GEAR_VALUE_X = GEAR_CENTER_X - GEAR_VALUE_W / 2;
-	static constexpr int GEAR_VALUE_Y = GEAR_CENTER_Y - GEAR_VALUE_H / 2;
-
-	static constexpr int TYRE_W = 69;
-	static constexpr int TYRE_H = 25;
-	static constexpr int TYRE_CORNER_RADIUS = 2;
-	static constexpr int TYRE_X = CENTER_X - TYRE_W / 2;
-	static constexpr int TYRE_Y = 164;
-	static constexpr int PEDAL_BAR_W = 13;
-	static constexpr int PEDAL_BAR_H = TYRE_H + 1;
-	static constexpr int PEDAL_BAR_Y = TYRE_Y;
-	// Centre each pedal bar in the free space between the tyre cluster and side panels.
-	// Mirrored placement keeps both bar centres symmetric around screen X=160.
-	// Preserve the previous bar centre while narrowing from 17 to 13 pixels.
-	static constexpr int BRAKE_BAR_X = 106;
-	static constexpr int THROTTLE_BAR_X = WIDTH - BRAKE_BAR_X - PEDAL_BAR_W;
-
-	static constexpr int SPEED_LABEL_Y = 52;
-	static constexpr int SPEED_VALUE_Y = 70;
-	static constexpr int SPEED_VALUE_H = 43;
-	static constexpr int SPEED_UNIT_Y = 114;
-	static constexpr int LEFT_SEPARATOR_Y = 126;
-	static constexpr int DELTA_LABEL_Y = 131;
-	static constexpr int DELTA_VALUE_Y = 150;
-	static constexpr int DELTA_VALUE_H = 38;
-
-	static constexpr int LAP_LABEL_Y[3] = {52, 99, 146};
-	static constexpr int LAP_VALUE_Y[3] = {70, 117, 164};
-	static constexpr int LAP_SEPARATOR_Y[2] = {95, 142};
-	static constexpr int LAP_VALUE_H = 24;
-
-	static constexpr int BOTTOM_LABEL_Y = 196;
-	static constexpr int BOTTOM_VALUE_Y = 214;
-	// Keep dynamic clears above the panel's bottom border at y=237.
-	static constexpr int BOTTOM_VALUE_H = 22;
-	static constexpr int BOTTOM_LINE_TOP = 196;
-	static constexpr int BOTTOM_LINE_H = 42;
-	// Three cells per half; BOTTOM_X[3] is the exact dashboard center divider.
-	static constexpr int BOTTOM_X[6] = {0, 56, 108, CENTER_X, 205, 262};
-	static constexpr int BOTTOM_W[6] = {56, 52, 52, 45, 57, 58};
-
-	static constexpr int RPM_SEGMENTS = 32;
-	static constexpr int RPM_SEGMENT_PITCH = 10;
-	static constexpr int RPM_SEGMENT_X = 1;
-	static constexpr int RPM_SEGMENT_W = 8;
-	static constexpr int RPM_SEGMENT_THICKNESS = 10;
-	static constexpr int RPM_LABEL_LEFT_X = 8;
-	static constexpr int RPM_LABEL_RIGHT_X = WIDTH - RPM_LABEL_LEFT_X;
-}
-
-// Keep the previous five-column dashboard available for A/B testing.
-// Set to 1 in the build flags to restore it without reverting this file.
-#ifndef GT7_DASHBOARD_LEGACY_UI
-#define GT7_DASHBOARD_LEGACY_UI 0
-#endif
-
-// Stable persisted values. Never reorder or reuse an existing numeric value.
-enum class DashboardTheme : uint8_t
-{
-	Classic = 0,
-	GT3 = 1,
-	Retro = 2,
-	Radar = 3,
-	Mono = 4,
-	Pocket = 5,
-	Endurance = 6,
-};
-
-struct DashboardThemeDescriptor
-{
-	DashboardTheme id;
-	const char *name;
-};
-
-static constexpr DashboardThemeDescriptor DASHBOARD_THEMES[] = {
-	{DashboardTheme::Classic, "CLASSIC"},
-	{DashboardTheme::GT3, "GT3"},
-	{DashboardTheme::Retro, "RETRO"},
-	{DashboardTheme::Radar, "RADAR"},
-	{DashboardTheme::Mono, "MONO"},
-	{DashboardTheme::Pocket, "POCKET"},
-	{DashboardTheme::Endurance, "ENDURANCE"},
-};
-static constexpr size_t DASHBOARD_THEME_COUNT =
-	sizeof(DASHBOARD_THEMES) / sizeof(DASHBOARD_THEMES[0]);
-
-// Phase 1 renderer preview hook. Normal firmware loads the persisted theme;
-// development builds can select a valid enum value without modifying storage.
-#ifndef GT7_DASHBOARD_THEME_PREVIEW
-#define GT7_DASHBOARD_THEME_PREVIEW -1
-#endif
-
-// Canonical dashboard state shared by every renderer. Telemetry parsing and
-// derived-value logic update this state; themes decide only how to present it.
+// Canonical dashboard state. Telemetry parsing and derived-value logic update
+// this state; the Radar theme decides only how to present it.
 struct DashboardState
 {
 	int rpmPercent = 50;
-	int prev_rpmPercent = 50;
 	int rpmRedLineSetting = 90;
 	int engineRpm = 0;
 	int rpmAlertMinRpm = 0;		// seuil d'alerte du jeu (minAlertRPM) en tr/min, 0 = inconnu
 	bool rpmAlertRangeValid = false;
 	bool revLimitAlertActive = false;
-	bool revLimitAlertWasActive = false;
-	bool rpmPulseWasActive = false;
-	uint8_t lastRpmPulseWhiteMix = 0;
-	uint32_t lastRpmPulseFrameTime = 0;
-	uint32_t rpmPulseStartTime = 0;
 	String gear = "N";
-	String prev_gear;
 	String speed = "0";
 	String currentLapTime = "00:00.00";
 	String lastLapTime = "00:00.00";
@@ -298,6 +145,20 @@ struct DashboardState
 		lapHistoryCount = 0;
 	}
 
+	// Temps moyen des tours de l'historique sans passage au pit (ms), -1 si aucun.
+	int32_t averageCleanLapMs() const
+	{
+		int64_t total = 0;
+		int count = 0;
+		for (int i = 0; i < lapHistoryCount; ++i)
+		{
+			if (lapHistoryPit[i] || lapHistoryMs[i] <= 0) continue;
+			total += lapHistoryMs[i];
+			++count;
+		}
+		return count > 0 ? static_cast<int32_t>(total / count) : -1;
+	}
+
 	// Ajoute un tour a droite ; quand la fenetre est pleine, le plus ancien sort.
 	void pushLapHistory(int lapNumber, int32_t lapMs, bool pit)
 	{
@@ -319,7 +180,6 @@ struct DashboardState
 };
 
 std::map<String, String> prevData;
-std::map<String, int32_t> prevColor;
 
 // configuro ble per gamepad
 
@@ -384,22 +244,15 @@ static void showWifiSetupScreen()
 		1);
 }
 
-int currentPage = 1;	  // Variabile per tenere traccia della pagina corrente
 bool forceUpdate = false; // Variabile per forzare l'aggiornamento delle celle
 
 class SHCustomProtocol : private DashboardState
 {
 private:
 	Preferences dashboardPreferences;
-	DashboardTheme activeDashboardTheme = DashboardTheme::GT3;
-	DashboardTheme renderedDashboardTheme = DashboardTheme::GT3;
-	DashboardTheme previewDashboardTheme = DashboardTheme::GT3;
-	DashboardState themePreviewData;
-	bool previewFullscreen = false;
 	bool dashboardPreferencesReady = false;
 
 	uint16_t touchX, touchY; // definisce i due interi per gestione touchscreen
-	int numButtons = 6;		 // Variabile per il numero di pulsanti
 
 	// A lightweight correction applied after the panel driver's own touch
 	// mapping. Persisting only four rotations keeps recovery deterministic.
@@ -449,8 +302,6 @@ private:
 	enum class SettingsScreen : uint8_t
 	{
 		Closed,
-		Main,
-		ThemeSelection,
 		DeviceSettings,
 		WifiResetConfirmation,
 		TouchCalibration,
@@ -472,27 +323,6 @@ private:
 
 	// 避免第一筆資料被誤判為狀態切換
 	bool gameRunningInitialized = false;
-
-	static bool isValidDashboardTheme(uint8_t value)
-	{
-		for (size_t i = 0; i < DASHBOARD_THEME_COUNT; ++i)
-			if (static_cast<uint8_t>(DASHBOARD_THEMES[i].id) == value) return true;
-		return false;
-	}
-
-	static const char *dashboardThemeName(DashboardTheme theme)
-	{
-		for (size_t i = 0; i < DASHBOARD_THEME_COUNT; ++i)
-			if (DASHBOARD_THEMES[i].id == theme) return DASHBOARD_THEMES[i].name;
-		return "GT3";
-	}
-
-	static size_t dashboardThemeIndex(DashboardTheme theme)
-	{
-		for (size_t i = 0; i < DASHBOARD_THEME_COUNT; ++i)
-			if (DASHBOARD_THEMES[i].id == theme) return i;
-		return 0;
-	}
 
 	static void applyTouchRotation(
 		uint16_t sourceX,
@@ -564,46 +394,6 @@ private:
 		return closestRotation;
 	}
 
-	void prepareThemePreviewData()
-	{
-		themePreviewData.rpmPercent = 68;
-		themePreviewData.prev_rpmPercent = 68;
-		themePreviewData.rpmRedLineSetting = 78;
-		themePreviewData.engineRpm = 5600;
-		themePreviewData.rpmAlertRangeValid = true;
-		themePreviewData.revLimitAlertActive = false;
-		themePreviewData.gear = "4";
-		themePreviewData.speed = "140";
-		themePreviewData.currentLapTime = "01:24.631";
-		themePreviewData.lastLapTime = "01:25.104";
-		themePreviewData.bestLapTime = "01:24.382";
-		themePreviewData.sessionBestLiveDeltaSeconds = "-0.237";
-		themePreviewData.sessionBestLiveDeltaProgressSeconds = "-0.24";
-		// These legacy protocol fields currently carry REM, POS, LAP and FUEL.
-		themePreviewData.tyrePressureFrontLeft = "4";
-		themePreviewData.tyrePressureFrontRight = "5";
-		themePreviewData.tyrePressureRearLeft = "3/10";
-		themePreviewData.brakeBias = "80";
-		themePreviewData.fuelAlertActive = "60";
-		themePreviewData.fuelIsEV = false;
-		themePreviewData.fuelValueValid = true;
-		themePreviewData.fuelLabel = "FUEL";
-		themePreviewData.fuelDisplayValue = "80";
-		themePreviewData.fuelProgressPercent = 80;
-		themePreviewData.tcLevel = "68";
-		themePreviewData.tcFilteredLevel = "62";
-		themePreviewData.absLevel = "36";
-		themePreviewData.absFilteredLevel = "31";
-		themePreviewData.absActive = "1";
-		themePreviewData.tcActive = "0";
-		themePreviewData.lapInvalidated = "False";
-		themePreviewData.tyreTemperatures[0] = 82.0f;
-		themePreviewData.tyreTemperatures[1] = 79.0f;
-		themePreviewData.tyreTemperatures[2] = 76.0f;
-		themePreviewData.tyreTemperatures[3] = 78.0f;
-		themePreviewData.gameRunning = "True";
-	}
-
 	uint8_t normalBrightness() const
 	{
 		return static_cast<uint8_t>(
@@ -626,32 +416,15 @@ private:
 		brightnessSavePending = false;
 	}
 
-	void invalidateDashboardRenderer()
-	{
-		tft.fillScreen(TFT_BLACK);
-		prevData.clear();
-		prevColor.clear();
-		prev_gear = "";
-		prev_rpmPercent = 50;
-		revLimitAlertWasActive = false;
-		rpmPulseWasActive = false;
-		lastRpmPulseWhiteMix = 0;
-		lastRpmPulseFrameTime = 0;
-		rpmPulseStartTime = millis();
-		connectingScreenActive = false;
-		connectingAnimationStep = 0;
-		lastConnectingAnimationTime = 0;
-		forceUpdate = true;
-	}
-
-	void loadDashboardTheme()
+	// Reglages memorises en flash (NVS) : luminosite et correction du toucher.
+	void loadDashboardPreferences()
 	{
 		dashboardPreferencesReady = dashboardPreferences.begin("gt7dash", false);
-		uint8_t storedTheme = static_cast<uint8_t>(DashboardTheme::GT3);
 		if (dashboardPreferencesReady)
 		{
-			storedTheme = dashboardPreferences.getUChar(
-				"theme", static_cast<uint8_t>(DashboardTheme::GT3));
+			// Cle du theme choisi dans l'ancien menu : plus utilisee (theme Radar seul).
+			if (dashboardPreferences.isKey("theme"))
+				dashboardPreferences.remove("theme");
 			const uint8_t storedBrightness = dashboardPreferences.getUChar(
 				"brightness", DEFAULT_BRIGHTNESS_PERCENT);
 			userBrightnessPercent =
@@ -665,18 +438,6 @@ private:
 				: TouchRotation::Deg0;
 		}
 		pendingTouchRotation = touchRotation;
-
-		activeDashboardTheme = isValidDashboardTheme(storedTheme)
-			? static_cast<DashboardTheme>(storedTheme)
-			: DashboardTheme::GT3;
-
-#if GT7_DASHBOARD_THEME_PREVIEW >= 0 && GT7_DASHBOARD_THEME_PREVIEW <= 6
-		activeDashboardTheme =
-			static_cast<DashboardTheme>(GT7_DASHBOARD_THEME_PREVIEW);
-#endif
-
-		renderedDashboardTheme = activeDashboardTheme;
-		previewDashboardTheme = activeDashboardTheme;
 	}
 
 #if INCLUDE_GT7_WIFI
@@ -719,6 +480,31 @@ private:
 			static_cast<unsigned long>(seconds),
 			static_cast<unsigned long>(millisPart));
 
+		return String(buffer);
+	}
+
+	// "m:ss" sous l'heure, "h:mm:ss" au-dela (courses d'endurance) ; "--:--" si inconnu.
+	String formatRemainingTime(float laps, int32_t lapMs)
+	{
+		if (laps < 0.0f || lapMs <= 0)
+			return "--:--";
+
+		const uint32_t totalSeconds =
+			static_cast<uint32_t>(lroundf(laps * lapMs / 1000.0f));
+		const uint32_t hours = totalSeconds / 3600UL;
+		const uint32_t minutes = (totalSeconds % 3600UL) / 60UL;
+		const uint32_t seconds = totalSeconds % 60UL;
+
+		char buffer[16];
+		if (hours > 0)
+			snprintf(buffer, sizeof(buffer), "%lu:%02lu:%02lu",
+				static_cast<unsigned long>(hours),
+				static_cast<unsigned long>(minutes),
+				static_cast<unsigned long>(seconds));
+		else
+			snprintf(buffer, sizeof(buffer), "%lu:%02lu",
+				static_cast<unsigned long>(minutes),
+				static_cast<unsigned long>(seconds));
 		return String(buffer);
 	}
 
@@ -819,8 +605,7 @@ public:
 		shiftLed.begin(BOARD_RGB_LED_RED_PIN, BOARD_RGB_LED_GREEN_PIN,
 			BOARD_RGB_LED_BLUE_PIN, BOARD_RGB_LED_ACTIVE_LOW);
 #endif
-		loadDashboardTheme();
-		prepareThemePreviewData();
+		loadDashboardPreferences();
 		tft.setRotation(DASHBOARD_DISPLAY_ROTATION);
 		tft.setBrightness(normalBrightness());
 		currentBrightness = normalBrightness();
@@ -1205,6 +990,13 @@ public:
 			tyrePressureFrontLeft = "--";
 		}
 
+		// REM TIME : autonomie en temps = tours de carburant restants x temps moyen des
+		// tours propres de l'historique. Il faut un tour complet pour l'estimation de
+		// consommation et un tour sans pit dans l'historique : "--:--" en attendant.
+		remainingTime = formatRemainingTime(
+			!fuelIsEV && estimatedFuelLaps >= 0.0f ? estimatedFuelLaps : -1.0f,
+			averageCleanLapMs());
+
 		// 油門、煞車：UDP 範圍 0～255，轉為百分比
 		const int throttlePercent =
 			constrain(static_cast<int>(data.throttle * 100.0f / 255.0f), 0, 100);
@@ -1505,7 +1297,6 @@ public:
 		const int gearIndex = static_cast<int>(gearPos) + 1; // 1..6
 		const float gearPhase = gearPos - static_cast<float>(gearIndex - 1); // 0..1
 
-		prev_rpmPercent = rpmPercent;
 		rpmPercent = static_cast<int>(45.0f + gearPhase * 53.0f);
 		rpmRedLineSetting = 78;
 		rpmAlertRangeValid = true;
@@ -1699,151 +1490,16 @@ public:
 
 		// 從 Connecting 切回主儀表時，完整重畫一次。
 		if (connectingScreenActive)
-		{
-			connectingScreenActive = false;
-			connectingAnimationStep = 0;
+			redrawDashboard();
 
-			tft.fillScreen(TFT_BLACK);
-			prevData.clear();
-			prevColor.clear();
-			prev_gear = "";
-			prev_rpmPercent = 50;
-			forceUpdate = true;
-		}
-
-		static int lastPage = currentPage;
-
-		if (currentPage != lastPage)
-		{
-			tft.fillScreen(TFT_BLACK);
-			prevData.clear();
-			prevColor.clear();
-			forceUpdate = true;
-			lastPage = currentPage;
-		}
-
-		if (activeDashboardTheme != renderedDashboardTheme)
-		{
-			renderedDashboardTheme = activeDashboardTheme;
-			invalidateDashboardRenderer();
-		}
-
-		if (currentPage == 1)
-		{
-			renderDashboard(activeDashboardTheme,
-				static_cast<DashboardState &>(*this), forceUpdate);
-		}
-		else if (forceUpdate)
-		{
-			drawPage2();
-		}
+		drawRadarDashboard(static_cast<DashboardState &>(*this), forceUpdate);
 
 		forceUpdate = false;
 	}
 
 	void idle() {}
 
-	void renderDashboard(DashboardTheme theme, DashboardState &state, bool forceUpdate)
-	{
-		switch (theme)
-		{
-		case DashboardTheme::Classic:
-			drawPage1Legacy(state, forceUpdate);
-			break;
-		case DashboardTheme::Retro:
-			drawRetroDashboard(state, forceUpdate);
-			break;
-		case DashboardTheme::Radar:
-			drawRadarDashboard(state, forceUpdate);
-			break;
-		case DashboardTheme::Mono:
-			drawMonoDashboard(state, forceUpdate);
-			break;
-		case DashboardTheme::Pocket:
-			drawPocketDashboard(state, forceUpdate);
-			break;
-		case DashboardTheme::Endurance:
-			drawEnduranceDashboard(state, forceUpdate);
-			break;
-		case DashboardTheme::GT3:
-		default:
-#if GT7_DASHBOARD_LEGACY_UI
-			drawPage1Legacy(state, forceUpdate);
-#else
-			drawPage1(state, forceUpdate);
-#endif
-			break;
-		}
-	}
-
-	static uint16_t blendRgb565(uint16_t from, uint16_t to, uint8_t amount)
-	{
-		const uint8_t fromR = ((from >> 11) & 0x1F) * 255 / 31;
-		const uint8_t fromG = ((from >> 5) & 0x3F) * 255 / 63;
-		const uint8_t fromB = (from & 0x1F) * 255 / 31;
-		const uint8_t toR = ((to >> 11) & 0x1F) * 255 / 31;
-		const uint8_t toG = ((to >> 5) & 0x3F) * 255 / 63;
-		const uint8_t toB = (to & 0x1F) * 255 / 31;
-		return tft.color565(
-			fromR + (toR - fromR) * amount / 255,
-			fromG + (toG - fromG) * amount / 255,
-			fromB + (toB - fromB) * amount / 255);
-	}
-
-	void releaseSpriteAfterThemePreview(LGFX_Sprite &sprite, bool &created)
-	{
-		if (settingsScreen != SettingsScreen::ThemeSelection || !created) return;
-		sprite.deleteSprite();
-		created = false;
-	}
-
-#include "dashboard/DashboardIcons.inc"
-
-#include "dashboard/themes/RetroTheme.inc"
-
 #include "dashboard/themes/RadarTheme.inc"
-
-#include "dashboard/themes/MonoTheme.inc"
-
-#include "dashboard/themes/PocketTheme.inc"
-
-#include "dashboard/themes/EnduranceTheme.inc"
-
-	void drawThemePlaceholder(
-		const DashboardState &state,
-		DashboardTheme theme,
-		bool forceUpdate)
-	{
-		const String cacheKey = theme == DashboardTheme::Classic
-			? "classicPlaceholder"
-			: "retroPlaceholder";
-		const String liveState = state.speed + ":" + state.gear + ":" +
-			String(state.engineRpm);
-		if (!forceUpdate && prevData[cacheKey] == liveState)
-		{
-			return;
-		}
-
-		if (forceUpdate)
-		{
-			tft.fillScreen(TFT_BLACK);
-			tft.setTextPadding(0);
-			tft.setTextDatum(MC_DATUM);
-			tft.setTextColor(TFT_WHITE, TFT_BLACK);
-			tft.drawCentreString(dashboardThemeName(theme), X_CENTER, 70, 4);
-			tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
-			tft.drawCentreString("PHASE 1 RENDERER", X_CENTER, 105, 2);
-			tft.drawCentreString("UI COMING IN A LATER PHASE", X_CENTER, 130, 1);
-		}
-
-		tft.fillRect(30, 160, SCREEN_WIDTH - 60, 38, TFT_BLACK);
-		tft.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-		tft.setTextDatum(MC_DATUM);
-		const String telemetryLine = state.speed + " km/h   GEAR " + state.gear +
-			"   " + String(state.engineRpm) + " RPM";
-		tft.drawCentreString(telemetryLine, X_CENTER, 176, 2);
-		prevData[cacheKey] = liveState;
-	}
 
 	void drawTouchCalibrationHint(bool confirm)
 	{
@@ -2096,9 +1752,71 @@ public:
 		return result;
 	}
 
-#include "dashboard/themes/GT3Theme.inc"
+	// Aides d'ecran (reprises de l'ancien ClassicTheme.inc) : fondu de la luminosite,
+	// redessin complet du tableau de bord, zone touchee.
+	void fadeToBrightness(uint8_t targetBrightness)
+	{
+		if (currentBrightness == targetBrightness)
+			return;
 
-#include "dashboard/themes/ClassicTheme.inc"
+		int brightness = currentBrightness;
+
+		if (brightness < targetBrightness)
+		{
+			while (brightness < targetBrightness)
+			{
+				brightness += FADE_STEP;
+
+				if (brightness > targetBrightness)
+					brightness = targetBrightness;
+
+				tft.setBrightness(brightness);
+				delay(FADE_DELAY_MS);
+			}
+		}
+		else
+		{
+			while (brightness > targetBrightness)
+			{
+				brightness -= FADE_STEP;
+
+				if (brightness < targetBrightness)
+					brightness = targetBrightness;
+
+				tft.setBrightness(brightness);
+				delay(FADE_DELAY_MS);
+			}
+		}
+
+		currentBrightness = targetBrightness;
+	}
+
+	void fadeScreenOn()
+	{
+		fadeToBrightness(normalBrightness());
+	}
+
+	void fadeScreenOff()
+	{
+		fadeToBrightness(0);
+	}
+
+	// Ecran efface et caches vides : le tableau de bord est entierement redessine
+	// au prochain passage (apres l'ecran de connexion ou la fermeture des reglages).
+	void redrawDashboard()
+	{
+		tft.fillScreen(TFT_BLACK);
+		prevData.clear();
+		connectingScreenActive = false;
+		connectingAnimationStep = 0;
+		forceUpdate = true;
+	}
+
+	bool touchInside(int x, int y, int width, int height) const
+	{
+		return touchX >= x && touchX < x + width &&
+			touchY >= y && touchY < y + height;
+	}
 
 	void drawSettingsButton(
 		int x,
@@ -2153,98 +1871,6 @@ public:
 		}
 	}
 
-	void clearThemePreviewRenderCache()
-	{
-		tft.fillScreen(TFT_BLACK);
-		prevData.clear();
-		prevColor.clear();
-		prev_gear = "";
-		themePreviewData.prev_rpmPercent = 50;
-	}
-
-	void drawThemeSelectorOverlay()
-	{
-		const uint16_t overlay = tft.color565(31, 34, 38);
-		const uint16_t divider = tft.color565(82, 86, 92);
-		const uint16_t inactive = tft.color565(82, 86, 92);
-		const uint16_t applyFill = tft.color565(48, 70, 82);
-
-		tft.fillRect(0, 0, SCREEN_WIDTH, 40, overlay);
-		tft.drawFastHLine(0, 39, SCREEN_WIDTH, divider);
-		tft.setTextDatum(MC_DATUM);
-		tft.setTextColor(TFT_WHITE, overlay);
-		for (int offset = -1; offset <= 1; ++offset)
-		{
-			tft.drawLine(42 + offset, 10, 32 + offset, 20, TFT_WHITE);
-			tft.drawLine(32 + offset, 20, 42 + offset, 30, TFT_WHITE);
-			tft.drawLine(SCREEN_WIDTH - 42 + offset, 10,
-				SCREEN_WIDTH - 32 + offset, 20, TFT_WHITE);
-			tft.drawLine(SCREEN_WIDTH - 32 + offset, 20,
-				SCREEN_WIDTH - 42 + offset, 30, TFT_WHITE);
-		}
-		const String previewThemeName = dashboardThemeName(previewDashboardTheme);
-		tft.setTextFont(2);
-		tft.drawString(previewThemeName, X_CENTER, 17);
-		tft.setTextFont(1);
-
-		const int indicatorWidth = 6;
-		const int indicatorHeight = 3;
-		const int indicatorGap = 3;
-		const int totalWidth = static_cast<int>(DASHBOARD_THEME_COUNT) * indicatorWidth +
-			(static_cast<int>(DASHBOARD_THEME_COUNT) - 1) * indicatorGap;
-		const int indicatorX = (SCREEN_WIDTH - totalWidth) / 2;
-		const size_t previewIndex = dashboardThemeIndex(previewDashboardTheme);
-		const size_t appliedIndex = dashboardThemeIndex(activeDashboardTheme);
-		const uint16_t appliedColor = tft.color565(92, 176, 112);
-		for (size_t i = 0; i < DASHBOARD_THEME_COUNT; ++i)
-		{
-			const uint16_t indicatorColor = i == appliedIndex
-				? appliedColor
-				: (i == previewIndex ? TFT_LIGHTGREY : inactive);
-			tft.fillRect(indicatorX + static_cast<int>(i) *
-				(indicatorWidth + indicatorGap), 31,
-				indicatorWidth, indicatorHeight, indicatorColor);
-		}
-
-		tft.fillRect(0, 198, SCREEN_WIDTH, 42, overlay);
-		tft.drawFastHLine(0, 198, SCREEN_WIDTH, divider);
-		tft.fillRoundRect(12, 204, 140, 30, 5, overlay);
-		tft.drawRoundRect(12, 204, 140, 30, 5, TFT_LIGHTGREY);
-		tft.fillRoundRect(168, 204, 140, 30, 5, applyFill);
-		tft.drawRoundRect(168, 204, 140, 30, 5, TFT_LIGHTGREY);
-		tft.setTextColor(TFT_WHITE, overlay);
-		tft.drawString("CANCEL", 82, 219, 2);
-		tft.setTextColor(TFT_WHITE, applyFill);
-		tft.drawString("APPLY", 238, 219, 2);
-		tft.setTextDatum(TL_DATUM);
-	}
-
-	void drawTapToReturnHint()
-	{
-		const uint16_t hintFill = tft.color565(210, 82, 126);
-		const int hintWidth = 112;
-		const int hintHeight = 20;
-		const int hintX = (SCREEN_WIDTH - hintWidth) / 2;
-		const int hintY = SCREEN_HEIGHT - 30;
-		tft.fillRoundRect(hintX, hintY, hintWidth, hintHeight,
-			hintHeight / 2, hintFill);
-		tft.setTextDatum(MC_DATUM);
-		tft.setTextColor(TFT_WHITE, hintFill);
-		tft.drawString("TAP TO RETURN", X_CENTER,
-			hintY + hintHeight / 2, 1);
-		tft.setTextDatum(TL_DATUM);
-	}
-
-	void renderThemePreview()
-	{
-		clearThemePreviewRenderCache();
-		renderDashboard(previewDashboardTheme, themePreviewData, true);
-		if (previewFullscreen)
-			drawTapToReturnHint();
-		else
-			drawThemeSelectorOverlay();
-	}
-
 	void drawTouchCalibrationScreen(int pressedButton = -1)
 	{
 		tft.fillScreen(TFT_BLACK);
@@ -2278,22 +1904,10 @@ public:
 		tft.setTextPadding(0);
 		tft.setTextDatum(MC_DATUM);
 
-		if (settingsScreen == SettingsScreen::Main)
+		if (settingsScreen == SettingsScreen::DeviceSettings)
 		{
 			tft.setTextColor(TFT_WHITE, TFT_BLACK);
-			tft.drawString("SETTINGS", X_CENTER, 25, 4);
-			drawSettingsButton(30, 55, 260, 48, "SELECT THEME", pressedButton == 0);
-			drawSettingsButton(30, 113, 260, 48, "DEVICE SETTINGS", pressedButton == 1);
-			drawSettingsButton(30, 171, 260, 48, "BACK", pressedButton == 2);
-		}
-		else if (settingsScreen == SettingsScreen::ThemeSelection)
-		{
-			renderThemePreview();
-		}
-		else if (settingsScreen == SettingsScreen::DeviceSettings)
-		{
-			tft.setTextColor(TFT_WHITE, TFT_BLACK);
-			tft.drawString("DEVICE SETTINGS", X_CENTER, 20, 4);
+			tft.drawString("SETTINGS", X_CENTER, 20, 4);
 			tft.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
 			tft.drawString("BRIGHTNESS", X_CENTER, 53, 2);
 			drawSettingsButton(30, 72, 70, 48, "-", pressedButton == 0);
@@ -2323,21 +1937,7 @@ public:
 
 	void redrawSettingsButton(int button, bool pressed)
 	{
-		if (settingsScreen == SettingsScreen::Main)
-		{
-			if (button == 0)
-				drawSettingsButton(30, 55, 260, 48, "SELECT THEME", pressed);
-			else if (button == 1)
-				drawSettingsButton(30, 113, 260, 48, "DEVICE SETTINGS", pressed);
-			else if (button == 2)
-				drawSettingsButton(30, 171, 260, 48, "BACK", pressed);
-		}
-		else if (settingsScreen == SettingsScreen::ThemeSelection)
-		{
-			// Preview controls intentionally have no pressed-state redraw. Avoiding
-			// a second full overlay pass keeps touch feedback flicker-free.
-		}
-		else if (settingsScreen == SettingsScreen::DeviceSettings)
+		if (settingsScreen == SettingsScreen::DeviceSettings)
 		{
 			if (button == 0)
 				drawSettingsButton(30, 72, 70, 48, "-", pressed);
@@ -2374,12 +1974,6 @@ public:
 		screenOffByUser = false;
 		tft.setBrightness(normalBrightness());
 		currentBrightness = normalBrightness();
-		if (screen == SettingsScreen::ThemeSelection &&
-			settingsScreen != SettingsScreen::ThemeSelection)
-		{
-			previewDashboardTheme = activeDashboardTheme;
-			previewFullscreen = false;
-		}
 		settingsScreen = screen;
 		wifiResetConfirmOpen = screen == SettingsScreen::WifiResetConfirmation;
 		settingsPressedButton = -1;
@@ -2390,7 +1984,6 @@ public:
 	void closeSettings()
 	{
 		settingsScreen = SettingsScreen::Closed;
-		previewFullscreen = false;
 		wifiResetConfirmOpen = false;
 		settingsPressedButton = -1;
 		touchCalibrationVerified = false;
@@ -2398,7 +1991,7 @@ public:
 		touchCalibrationAwaitingSecondTap = false;
 		touchCalibrationFirstTapTime = 0;
 		pendingTouchRotation = touchRotation;
-		redrawAfterWifiResetDialog();
+		redrawDashboard();
 	}
 
 	void showTouchCalibration(TouchRotation candidate)
@@ -2412,46 +2005,6 @@ public:
 	{
 		showSettingsScreen(SettingsScreen::WifiResetConfirmation);
 	}
-
-#if 0
-	void showWifiResetConfirmLegacy()
-	{
-		// 即使原本處於暗屏，也要先亮起確認畫面。
-		screenSleeping = false;
-		screenOffByUser = false;
-		tft.setBrightness(normalBrightness());
-		currentBrightness = normalBrightness();
-
-		tft.fillScreen(TFT_BLACK);
-		tft.setTextPadding(0);
-		tft.setTextDatum(MC_DATUM);
-
-		tft.setTextColor(TFT_WHITE, TFT_BLACK);
-		tft.drawString("Reset saved Wi-Fi?", SCREEN_WIDTH / 2, 60, 4);
-
-		tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
-		tft.drawString("Device will restart", SCREEN_WIDTH / 2, 95, 2);
-
-		const int buttonY = 135;
-		const int buttonHeight = 62;
-		const int buttonWidth = 120;
-		const int noX = 25;
-		const int yesX = SCREEN_WIDTH - 25 - buttonWidth;
-
-		tft.fillRoundRect(noX, buttonY, buttonWidth, buttonHeight, 8, TFT_DARKGREY);
-		tft.drawRoundRect(noX, buttonY, buttonWidth, buttonHeight, 8, TFT_WHITE);
-		tft.setTextColor(TFT_WHITE, TFT_DARKGREY);
-		tft.drawString("NO", noX + buttonWidth / 2, buttonY + buttonHeight / 2, 4);
-
-		tft.fillRoundRect(yesX, buttonY, buttonWidth, buttonHeight, 8, TFT_RED);
-		tft.drawRoundRect(yesX, buttonY, buttonWidth, buttonHeight, 8, TFT_WHITE);
-		tft.setTextColor(TFT_WHITE, TFT_RED);
-		tft.drawString("YES", yesX + buttonWidth / 2, buttonY + buttonHeight / 2, 4);
-
-		tft.setTextDatum(TL_DATUM);
-	}
-
-#endif
 
 	void showWifiResettingScreen()
 	{
@@ -2481,23 +2034,7 @@ public:
 
 	int settingsButtonAtTouch() const
 	{
-		if (settingsScreen == SettingsScreen::Main)
-		{
-			if (touchInside(30, 55, 260, 48)) return 0;
-			if (touchInside(30, 113, 260, 48)) return 1;
-			if (touchInside(30, 171, 260, 48)) return 2;
-		}
-		else if (settingsScreen == SettingsScreen::ThemeSelection)
-		{
-			if (previewFullscreen) return 5;
-			if (touchInside(0, 0, SCREEN_WIDTH / 3, 40)) return 0;
-			if (touchInside(SCREEN_WIDTH * 2 / 3, 0,
-				SCREEN_WIDTH - SCREEN_WIDTH * 2 / 3, 40)) return 1;
-			if (touchInside(0, 40, SCREEN_WIDTH, 158)) return 2;
-			if (touchInside(0, 198, SCREEN_WIDTH / 2, 42)) return 3;
-			if (touchInside(SCREEN_WIDTH / 2, 198, SCREEN_WIDTH / 2, 42)) return 4;
-		}
-		else if (settingsScreen == SettingsScreen::DeviceSettings)
+		if (settingsScreen == SettingsScreen::DeviceSettings)
 		{
 			if (touchInside(30, 72, 70, 48)) return 0;
 			if (touchInside(220, 72, 70, 48)) return 1;
@@ -2523,56 +2060,7 @@ public:
 
 	void activateSettingsButton(int button)
 	{
-		if (settingsScreen == SettingsScreen::Main)
-		{
-			if (button == 0)
-				showSettingsScreen(SettingsScreen::ThemeSelection);
-			else if (button == 1)
-				showSettingsScreen(SettingsScreen::DeviceSettings);
-			else if (button == 2)
-				closeSettings();
-		}
-		else if (settingsScreen == SettingsScreen::ThemeSelection)
-		{
-			if (button == 0 || button == 1)
-			{
-				const size_t currentIndex = dashboardThemeIndex(previewDashboardTheme);
-				const size_t nextIndex = button == 0
-					? (currentIndex + DASHBOARD_THEME_COUNT - 1) % DASHBOARD_THEME_COUNT
-					: (currentIndex + 1) % DASHBOARD_THEME_COUNT;
-				previewDashboardTheme = DASHBOARD_THEMES[nextIndex].id;
-				settingsLastInteractionTime = millis();
-				renderThemePreview();
-			}
-			else if (button == 2)
-			{
-				previewFullscreen = true;
-				settingsLastInteractionTime = millis();
-				renderThemePreview();
-			}
-			else if (button == 3)
-			{
-				closeSettings();
-			}
-			else if (button == 4)
-			{
-				const DashboardTheme selectedTheme = previewDashboardTheme;
-				const bool changed = selectedTheme != activeDashboardTheme;
-				settingsScreen = SettingsScreen::Closed;
-				wifiResetConfirmOpen = false;
-				settingsPressedButton = -1;
-				previewFullscreen = false;
-				selectDashboardTheme(selectedTheme, true);
-				if (!changed) redrawAfterWifiResetDialog();
-			}
-			else if (button == 5)
-			{
-				previewFullscreen = false;
-				settingsLastInteractionTime = millis();
-				renderThemePreview();
-			}
-		}
-		else if (settingsScreen == SettingsScreen::DeviceSettings)
+		if (settingsScreen == SettingsScreen::DeviceSettings)
 		{
 			if (button == 0 || button == 1)
 			{
@@ -2594,7 +2082,7 @@ public:
 			}
 			else if (button == 3)
 			{
-				showSettingsScreen(SettingsScreen::Main);
+				closeSettings();
 			}
 		}
 		else if (settingsScreen == SettingsScreen::WifiResetConfirmation)
@@ -2779,7 +2267,7 @@ public:
 			{
 				touchCalibrationAwaitingSecondTap = false;
 				touchCalibrationFirstTapTime = 0;
-				showSettingsScreen(SettingsScreen::Main);
+				showSettingsScreen(SettingsScreen::DeviceSettings);
 			}
 			touchCalibrationEntryArmed = false;
 			waitForReleaseAfterScreenChange = true;
@@ -2788,124 +2276,6 @@ public:
 		wasTouched = isTouched;
 	}
 
-#if 0
-	void readTouchLegacy()
-	{
-		if (!TOUCH_SCREEN_CONTROL_ENABLED)
-		{
-			return;
-		}
-
-		static bool wasTouched = false;
-		static bool longPressTriggered = false;
-		static bool waitForReleaseAfterDialog = false;
-		static unsigned long touchStartTime = 0;
-
-		const bool isTouched = tft.getTouch(&touchX, &touchY);
-
-		// 長按開啟確認畫面後，必須先放開，避免同一次觸控誤按 YES／NO。
-		if (waitForReleaseAfterDialog)
-		{
-			if (!isTouched)
-			{
-				waitForReleaseAfterDialog = false;
-				wasTouched = false;
-			}
-			return;
-		}
-
-		// 確認畫面中的按鈕處理。
-		if (wifiResetConfirmOpen)
-		{
-			if (isTouched && !wasTouched)
-			{
-				touchStartTime = millis();
-			}
-
-			if (!isTouched && wasTouched)
-			{
-				const int buttonY = 135;
-				const int buttonHeight = 62;
-				const int buttonWidth = 120;
-				const int noX = 25;
-				const int yesX = SCREEN_WIDTH - 25 - buttonWidth;
-
-				const bool noPressed =
-					touchX >= noX && touchX < noX + buttonWidth &&
-					touchY >= buttonY && touchY < buttonY + buttonHeight;
-
-				const bool yesPressed =
-					touchX >= yesX && touchX < yesX + buttonWidth &&
-					touchY >= buttonY && touchY < buttonY + buttonHeight;
-
-				if (yesPressed)
-				{
-					showWifiResettingScreen();
-					wifiResetRequested = true;
-				}
-				else if (noPressed)
-				{
-					wifiResetConfirmOpen = false;
-					redrawAfterWifiResetDialog();
-				}
-			}
-
-			wasTouched = isTouched;
-			return;
-		}
-
-		// 手指剛碰到螢幕：開始計算長按時間。
-		if (isTouched && !wasTouched)
-		{
-			touchStartTime = millis();
-			longPressTriggered = false;
-		}
-
-		// 全螢幕持續按住 6 秒：顯示 Wi-Fi 重設確認畫面。
-		if (isTouched &&
-			!longPressTriggered &&
-			millis() - touchStartTime >= WIFI_RESET_HOLD_MS)
-		{
-			longPressTriggered = true;
-			wifiResetConfirmOpen = true;
-			showWifiResetConfirm();
-			waitForReleaseAfterDialog = true;
-			wasTouched = isTouched;
-			return;
-		}
-
-		// 未達 6 秒便放開：維持原本的短按亮屏／熄屏功能。
-		if (!isTouched && wasTouched && !longPressTriggered)
-		{
-			if (screenSleeping)
-			{
-				screenSleeping = false;
-				screenOffByUser = false;
-				fadeScreenOn();
-				forceUpdate = true;
-
-				if (!previousGameRunning)
-				{
-					gameStoppedTimerStarted = true;
-					gameStoppedTime = millis();
-				}
-				else
-				{
-					gameStoppedTimerStarted = false;
-				}
-			}
-			else
-			{
-				screenOffByUser = true;
-				screenSleeping = true;
-				fadeScreenOff();
-				gameStoppedTimerStarted = false;
-			}
-		}
-
-		wasTouched = isTouched;
-	}
-#endif
 };
 
 #endif
