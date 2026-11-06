@@ -1,3 +1,4 @@
+// 30/10/2026 15:28 - Cumuls de session par phase et par tranche de vitesse (lent / rapide) pour l'ingenieur de course ; reset() ne touche plus qu'aux moyennes glissantes, resetSession() remet les cumuls a zero
 // 25/10/2026 20:50 - reset() : moyennes remises a zero a chaque nouvelle session (voiture qui revient en piste, nouvelle course) pour ne plus afficher les valeurs de la session precedente
 // 25/10/2026 14:45 - Phase d'entree separee en F (freinage : repartition de freinage + DGL Decel) et L (lever de pied : DGL Decel seul) -> 4 lignes
 // 23/10/2026 15:05 - Seuils ajustables (virage, phases, moyennes, couleurs) deplaces dans include/tuning.h
@@ -43,6 +44,11 @@
 // Affichage : une ligne par phase, "F 0.92 +0.10" (phase, Y/N, R/F), figee
 // HANDLING_DISPLAY_PERIOD_MS pour rester lisible ; "--" tant qu'il n'y a pas
 // assez de donnees.
+//
+// En plus des moyennes glissantes, chaque echantillon alimente des cumuls de
+// session (moyenne ponderee par le temps, sans oubli), separes en virages lents
+// et rapides (ENGINEER_FAST_KMH). Ils servent a l'ingenieur de course et ne sont
+// remis a zero que par resetSession() : retour en piste ou bouton RAZ.
 class HandlingTrace
 {
 public:
@@ -56,6 +62,38 @@ public:
 
 	enum Phase : uint8_t { PHASE_BRAKE, PHASE_LIFT, PHASE_MID, PHASE_EXIT, PHASE_COUNT };
 	enum Tendency : int8_t { TENDENCY_NONE = -2, TENDENCY_UNDER = -1, TENDENCY_NEUTRAL = 0, TENDENCY_OVER = 1 };
+	enum SpeedBand : uint8_t { BAND_SLOW, BAND_FAST, BAND_COUNT };
+
+	// Cumul sur la session : moyenne ponderee par le temps de virage.
+	struct SessionStat
+	{
+		float timeS = 0.0f;
+		float weightedSum = 0.0f;
+
+		void add(float sample, float dtS)
+		{
+			timeS += dtS;
+			weightedSum += sample * dtS;
+		}
+		float mean() const { return timeS > 0.0f ? weightedSum / timeS : NAN; }
+		SessionStat operator+(const SessionStat &other) const
+		{
+			SessionStat sum;
+			sum.timeS = timeS + other.timeS;
+			sum.weightedSum = weightedSum + other.weightedSum;
+			return sum;
+		}
+	};
+
+	// Cumuls d'une phase : equilibre Y/N et blocage R/F, par tranche de vitesse.
+	struct SessionPhase
+	{
+		SessionStat balance[BAND_COUNT];
+		SessionStat lock[BAND_COUNT];
+
+		SessionStat totalBalance() const { return balance[BAND_SLOW] + balance[BAND_FAST]; }
+		SessionStat totalLock() const { return lock[BAND_SLOW] + lock[BAND_FAST]; }
+	};
 
 	struct Input
 	{
@@ -72,7 +110,8 @@ public:
 	String lines[PHASE_COUNT] = {"F --   --", "L --   --", "M --   --", "S --   --"};
 	Tendency tendency[PHASE_COUNT] = {TENDENCY_NONE, TENDENCY_NONE, TENDENCY_NONE, TENDENCY_NONE};
 
-	// Nouvelle session : on oublie les moyennes, toutes les lignes repassent a "--".
+	// Nouvelle session ou nouvelle course : on oublie les moyennes glissantes, toutes
+	// les lignes repassent a "--". Les cumuls de session ne sont pas touches.
 	void reset()
 	{
 		for (int p = 0; p < PHASE_COUNT; ++p)
@@ -83,6 +122,15 @@ public:
 		lastSample_ = 0;
 		refreshLines();
 	}
+
+	// Cumuls de session remis a zero (retour en piste, RAZ de l'ingenieur de course).
+	void resetSession()
+	{
+		for (int p = 0; p < PHASE_COUNT; ++p)
+			session_[p] = SessionPhase();
+	}
+
+	const SessionPhase &sessionPhase(int phase) const { return session_[phase]; }
 
 	void update(const Input &in, uint32_t now)
 	{
@@ -160,10 +208,17 @@ private:
 
 		const float dtS = stepMs / 1000.0f;
 		const Phase phase = phaseOf(in);
+		const SpeedBand band = in.speedMs * 3.6f >= ENGINEER_FAST_KMH ? BAND_FAST : BAND_SLOW;
 		// Ratio borne pour qu'un echantillon aberrant (choc, vibreur) ne domine pas.
-		balance_[phase].add(constrain(yaw / neutralYaw, -2.0f, 3.0f), dtS);
+		const float balance = constrain(yaw / neutralYaw, -2.0f, 3.0f);
+		balance_[phase].add(balance, dtS);
+		session_[phase].balance[band].add(balance, dtS);
 		if (fabsf(frontDiff) >= HANDLING_MIN_FRONT_DIFF_KMH)
-			lock_[phase].add(constrain(rearDiff / frontDiff, -3.0f, 3.0f), dtS);
+		{
+			const float lock = constrain(rearDiff / frontDiff, -3.0f, 3.0f);
+			lock_[phase].add(lock, dtS);
+			session_[phase].lock[band].add(lock, dtS);
+		}
 	}
 
 	void refreshLines()
@@ -198,6 +253,7 @@ private:
 
 	Average balance_[PHASE_COUNT];
 	Average lock_[PHASE_COUNT];
+	SessionPhase session_[PHASE_COUNT];
 	uint32_t lastSample_ = 0;
 	uint32_t lastDisplay_ = 0;
 	uint32_t lastSerial_ = 0;

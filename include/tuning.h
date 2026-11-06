@@ -1,3 +1,4 @@
+// 30/10/2026 15:28 - Ajout des reglages de l'ingenieur de course (toucher a l'arret, donnees minimales, classes de R/F, virages rapides, ecart minimal) ; seuils existants inchanges
 // 23/10/2026 15:05 - Creation : reglages ajustables a la main (detection du pit, analyse HANDLING, LED de passage de rapport), regroupes hors du code pour ne plus etre ecrases par une livraison
 #pragma once
 
@@ -52,3 +53,27 @@ static constexpr uint32_t SHIFT_LED_BLINK_HALF_PERIOD_SLOW_MS = 200;	// debut de
 static constexpr uint32_t SHIFT_LED_BLINK_HALF_PERIOD_FAST_MS = 40;	// pres du seuil : 12,5 clignotements/s
 static constexpr uint32_t SHIFT_LED_DIRECTION_WINDOW_MS = 100;	// intervalle de comparaison du regime
 static constexpr int SHIFT_LED_DIRECTION_HYSTERESIS_RPM = 40;	// ecart minimal pour changer de sens
+
+// ---------------------------------------------------------------------------
+// Ingenieur de course : ecran ouvert par un appui sur la cellule HANDLING,
+// voiture arretee. Bilan de la session (depuis le dernier retour en piste ou
+// RAZ), un conseil, et comparaison avec la session precedente.
+// Equilibre neutre : memes seuils que les couleurs HANDLING ci-dessus.
+// ---------------------------------------------------------------------------
+// Toucher en jeu : accepte seulement a l'arret (evite d'ouvrir un ecran en roulant).
+static constexpr float ENGINEER_STOPPED_KMH = 1.0f;	// toucher accepte si vitesse <= cette valeur
+static constexpr float ENGINEER_CLOSE_KMH = 5.0f;	// au-dela : ecrans de reglage refermes
+// Donnees minimales pour conclure sur une ligne (virage cumule dans la session).
+static constexpr float ENGINEER_MIN_TIME_S = 10.0f;	// Y/N : en deca, ligne "peu" et ignoree
+static constexpr float ENGINEER_MIN_LOCK_TIME_S = 5.0f;	// R/F : en deca, blocage inconnu
+// Classes de R/F (blocage du differentiel arriere).
+static constexpr float ENGINEER_LOCK_SPIN_MAX = -0.10f;	// en dessous : roue interieure qui patine
+static constexpr float ENGINEER_LOCK_LOCKED_MAX = 0.30f;	// en dessous : arriere bloque (~0)
+static constexpr float ENGINEER_LOCK_FREE_MIN = 0.80f;	// au-dessus : arriere libre (~1), DGL hors de cause
+// Virages rapides (aero dominante) : separes des virages lents pour orienter le conseil chassis.
+static constexpr float ENGINEER_FAST_KMH = 120.0f;
+static constexpr float ENGINEER_BAND_MIN_TIME_S = 5.0f;	// donnees minimales par tranche de vitesse
+// Comparaison avant / apres : ecart minimal de |Y/N - 1| pour parler d'effet.
+static constexpr float ENGINEER_MIN_CHANGE = 0.03f;
+// Pas des conseils DGL (Initial / Accel / Decel).
+static constexpr int ENGINEER_DGL_STEP = 5;

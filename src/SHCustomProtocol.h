@@ -1,3 +1,4 @@
+// 30/10/2026 15:28 - Ingenieur de course (appui sur HANDLING a l'arret) ; en jeu, toucher accepte seulement voiture arretee (<= ENGINEER_STOPPED_KMH) et ecrans de reglage refermes si elle repart ; toucher plus limite a 480x240 (taille reelle du panneau 480x320) ; mode demo : arret de 6 s toutes les 36 s
 // 28/10/2026 00:30 - REM TIME calcule en course (il n'etait alimente qu'en mode demo, donc toujours "--:--") : tours de carburant restants x temps moyen des tours propres (hors pit) de l'historique
 // 27/10/2026 19:30 - Nettoyage : theme Radar seul (autres themes, menu de selection et apercu supprimes), carte 3248S035 seule (support 2432S028 retire), reglages ouverts directement sur l'ecran SETTINGS (luminosite, reset Wi-Fi) ; aides d'ecran (fondu, toucher) reprises de ClassicTheme.inc
 // 21/09/2026 14:54 - Selection du profil LGFX via BOARD_ESP32_3248S035 pour supporter la carte ESP32-3248S035R (ST7796 320x480) en plus de la 2432S028.
@@ -49,6 +50,7 @@
 #include "tuning.h"
 #include "dashboard/HandlingTrace.h"
 #include "dashboard/FuelFlow.h"
+#include "dashboard/RaceEngineer.h"
 #if defined(BOARD_RGB_LED_BLUE_PIN)
 #include "dashboard/ShiftLed.h"
 #endif
@@ -305,6 +307,7 @@ private:
 		DeviceSettings,
 		WifiResetConfirmation,
 		TouchCalibration,
+		Engineer,	// ingenieur de course (appui sur HANDLING a l'arret)
 	};
 
 	static constexpr unsigned long SETTINGS_TIMEOUT_MS = 15000UL;
@@ -317,6 +320,11 @@ private:
 
 	// 記錄上一筆 GT7 執行狀態，用來偵測 False -> True
 	bool previousGameRunning = false;
+
+	// Ingenieur de course, vitesse (toucher accepte seulement a l'arret) et voiture en piste.
+	RaceEngineer engineer;
+	float currentSpeedKmh = 0.0f;
+	int32_t currentCarCode = 0;
 #if defined(BOARD_RGB_LED_BLUE_PIN)
 	ShiftLed shiftLed;
 #endif
@@ -331,31 +339,36 @@ private:
 		uint16_t &resultX,
 		uint16_t &resultY)
 	{
-		const uint32_t x = constrain(sourceX, 0, SCREEN_WIDTH - 1);
-		const uint32_t y = constrain(sourceY, 0, SCREEN_HEIGHT - 1);
+		// Taille reelle du panneau (480x320) : SCREEN_WIDTH vaut ici 480 (theme Radar,
+		// inclus dans la classe) mais SCREEN_HEIGHT 240 (ancien ecran), ce qui ramenait
+		// tout toucher du bas de l'ecran (y >= 240) sur la ligne 239.
+		const uint32_t panelWidth = tft.width();
+		const uint32_t panelHeight = tft.height();
+		const uint32_t x = constrain(sourceX, 0, panelWidth - 1);
+		const uint32_t y = constrain(sourceY, 0, panelHeight - 1);
 		switch (rotation)
 		{
 		case TouchRotation::Deg90:
 			resultX = static_cast<uint16_t>(
-				(y * (SCREEN_WIDTH - 1) + (SCREEN_HEIGHT - 1) / 2) /
-				(SCREEN_HEIGHT - 1));
+				(y * (panelWidth - 1) + (panelHeight - 1) / 2) /
+				(panelHeight - 1));
 			resultY = static_cast<uint16_t>(
-				(((SCREEN_WIDTH - 1) - x) * (SCREEN_HEIGHT - 1) +
-					(SCREEN_WIDTH - 1) / 2) /
-				(SCREEN_WIDTH - 1));
+				(((panelWidth - 1) - x) * (panelHeight - 1) +
+					(panelWidth - 1) / 2) /
+				(panelWidth - 1));
 			break;
 		case TouchRotation::Deg180:
-			resultX = SCREEN_WIDTH - 1 - x;
-			resultY = SCREEN_HEIGHT - 1 - y;
+			resultX = panelWidth - 1 - x;
+			resultY = panelHeight - 1 - y;
 			break;
 		case TouchRotation::Deg270:
 			resultX = static_cast<uint16_t>(
-				(((SCREEN_HEIGHT - 1) - y) * (SCREEN_WIDTH - 1) +
-					(SCREEN_HEIGHT - 1) / 2) /
-				(SCREEN_HEIGHT - 1));
+				(((panelHeight - 1) - y) * (panelWidth - 1) +
+					(panelHeight - 1) / 2) /
+				(panelHeight - 1));
 			resultY = static_cast<uint16_t>(
-				(x * (SCREEN_HEIGHT - 1) + (SCREEN_WIDTH - 1) / 2) /
-				(SCREEN_WIDTH - 1));
+				(x * (panelHeight - 1) + (panelWidth - 1) / 2) /
+				(panelWidth - 1));
 			break;
 		case TouchRotation::Deg0:
 		default:
@@ -606,6 +619,7 @@ public:
 			BOARD_RGB_LED_BLUE_PIN, BOARD_RGB_LED_ACTIVE_LOW);
 #endif
 		loadDashboardPreferences();
+		engineer.begin();
 		tft.setRotation(DASHBOARD_DISPLAY_ROTATION);
 		tft.setBrightness(normalBrightness());
 		currentBrightness = normalBrightness();
@@ -820,6 +834,8 @@ public:
 
 		// 速度與檔位
 		speed = String(static_cast<int>(data.speed * 3.6f));
+		currentSpeedKmh = data.speed * 3.6f;
+		currentCarCode = data.carCode;
 
 		const int currentGear =
 			gt7Telem.getCurrentGearFromByte();
@@ -1251,6 +1267,13 @@ public:
 		if (gameJustStarted)
 		{
             resetLapDifference();
+			// Retour en piste (le DGL ne se regle qu'au garage) : la session precedente
+			// devient le bilan "avant" de l'ingenieur de course, puis nouvelle session.
+			engineer.endSession(RaceEngineer::summarize(handling));
+			handling.resetSession();
+			engineer.selectCar(currentCarCode);
+			if (settingsScreen == SettingsScreen::Engineer)
+				drawSettingsScreen();
 			// Nouvelle session (retour en piste) : pas de valeurs de la session precedente.
 			handling.reset();
 			fuelFlow.reset();
@@ -1292,6 +1315,13 @@ public:
 		const bool firstUpdate = (lastDemoUpdate == 0);
 		lastDemoUpdate = now;
 
+		// Arret de DEMO_STOP_MS toutes les DEMO_STOP_PERIOD_MS : le toucher n'etant
+		// accepte qu'a l'arret, c'est la fenetre pour ouvrir l'ecran de l'ingenieur.
+		static constexpr uint32_t DEMO_STOP_PERIOD_MS = 36000;
+		static constexpr uint32_t DEMO_STOP_MS = 6000;
+		const bool demoStopped = now % DEMO_STOP_PERIOD_MS >= DEMO_STOP_PERIOD_MS - DEMO_STOP_MS;
+		currentCarCode = 1234;	// voiture fictive (transmission memorisee pour elle)
+
 		const float cycle = (now % 12000) / 12000.0f;
 		const float gearPos = cycle * 6.0f;
 		const int gearIndex = static_cast<int>(gearPos) + 1; // 1..6
@@ -1305,7 +1335,16 @@ public:
 		revLimitAlertActive = rpmPercent >= 97;
 
 		gear = String(gearIndex);
-		speed = String(static_cast<int>(40.0f + (gearIndex - 1) * 38.0f + gearPhase * 38.0f));
+		currentSpeedKmh = 40.0f + (gearIndex - 1) * 38.0f + gearPhase * 38.0f;
+		if (demoStopped)
+		{
+			rpmPercent = 12;
+			engineRpm = rpmPercent * 80;
+			revLimitAlertActive = false;
+			gear = "N";
+			currentSpeedKmh = 0.0f;
+		}
+		speed = String(static_cast<int>(currentSpeedKmh));
 
 		// Pedales : l'interface les lit dans absLevel/absFilteredLevel (frein)
 		// et tcLevel/tcFilteredLevel (accelerateur).
@@ -1313,8 +1352,9 @@ public:
 		// Lever de pied juste avant le freinage: phase "L" de HandlingTrace.
 		const bool lifting = !braking && gearPhase >= 0.85f;
 		// Accelerateur partiel avant le lever de pied: phase "milieu de virage" de HandlingTrace.
-		const int throttle = braking ? 15 : (lifting ? 0 : (gearPhase >= 0.7f ? 30 : 100));
-		const int brakeInput = braking ? 80 : 0;
+		const int throttle = demoStopped ? 0
+			: braking ? 15 : (lifting ? 0 : (gearPhase >= 0.7f ? 30 : 100));
+		const int brakeInput = braking && !demoStopped ? 80 : 0;
 		tcLevel = String(throttle);
 		tcFilteredLevel = String(throttle * 9 / 10);
 		absLevel = String(brakeInput);
@@ -1364,7 +1404,8 @@ public:
 
 		// Comportement: virage gauche/droite toutes les 8 s ; sous-virage au freinage
 		// (lacet a 85 % du neutre), leger sous-virage au lever de pied (95 %), neutre a
-		// accelerateur partiel, survirage a pleine charge (120 %).
+		// accelerateur partiel, survirage a pleine charge (120 %). Rien pendant l'arret.
+		if (!demoStopped)
 		{
 			const float demoSpeedMs = (40.0f + (gearIndex - 1) * 38.0f + gearPhase * 38.0f) / 3.6f;
 			const float demoWheelBase = 2.65f;
@@ -1466,6 +1507,14 @@ public:
 			closeSettings();
 		}
 
+		// Voiture qui repart : les ecrans de reglage (ingenieur compris) laissent la
+		// place au tableau de bord.
+		if (settingsScreen != SettingsScreen::Closed && previousGameRunning &&
+			currentSpeedKmh > ENGINEER_CLOSE_KMH)
+		{
+			closeSettings();
+		}
+
 		// Keep reading touch while asleep so a tap can wake the display and a
 		// long press can open Settings.
 		readTouch();
@@ -1500,6 +1549,7 @@ public:
 	void idle() {}
 
 #include "dashboard/themes/RadarTheme.inc"
+#include "dashboard/RaceEngineerScreen.inc"
 
 	void drawTouchCalibrationHint(bool confirm)
 	{
@@ -1931,6 +1981,10 @@ public:
 		{
 			drawTouchCalibrationScreen(pressedButton);
 		}
+		else if (settingsScreen == SettingsScreen::Engineer)
+		{
+			drawRaceEngineerScreen(pressedButton);
+		}
 
 		tft.setTextDatum(TL_DATUM);
 	}
@@ -2055,6 +2109,10 @@ public:
 			if (touchInside(25, 169, 125, 50) || originalCancel) return 1;
 			if (touchCalibrationVerified && touchInside(170, 169, 125, 50)) return 2;
 		}
+		else if (settingsScreen == SettingsScreen::Engineer)
+		{
+			return raceEngineerButtonAtTouch();
+		}
 		return -1;
 	}
 
@@ -2118,6 +2176,10 @@ public:
 				closeSettings();
 			}
 		}
+		else if (settingsScreen == SettingsScreen::Engineer)
+		{
+			activateRaceEngineerButton(button);
+		}
 	}
 
 	void readTouch()
@@ -2132,7 +2194,11 @@ public:
 		static bool waitForReleaseAfterScreenChange = false;
 		uint16_t rawTouchX = 0;
 		uint16_t rawTouchY = 0;
-		const bool isTouched = tft.getTouch(&rawTouchX, &rawTouchY);
+		bool isTouched = tft.getTouch(&rawTouchX, &rawTouchY);
+		// En jeu, toucher accepte seulement voiture arretee : un appui par megarde en
+		// roulant n'ouvre plus d'ecran (et un ecran ouvert se referme si elle repart).
+		if (isTouched && previousGameRunning && currentSpeedKmh > ENGINEER_STOPPED_KMH)
+			isTouched = false;
 		if (isTouched)
 		{
 			applyTouchRotation(
@@ -2216,7 +2282,10 @@ public:
 
 		if (settingsScreen != SettingsScreen::Closed)
 		{
-			if (!isTouched && settingsLastInteractionTime != 0 &&
+			// Pas de fermeture automatique pour l'ingenieur : on le lit a l'arret (ou au
+			// garage) aussi longtemps que voulu ; il se ferme quand la voiture repart.
+			if (settingsScreen != SettingsScreen::Engineer &&
+				!isTouched && settingsLastInteractionTime != 0 &&
 				millis() - settingsLastInteractionTime >= SETTINGS_TIMEOUT_MS)
 			{
 				closeSettings();
@@ -2267,7 +2336,11 @@ public:
 			{
 				touchCalibrationAwaitingSecondTap = false;
 				touchCalibrationFirstTapTime = 0;
-				showSettingsScreen(SettingsScreen::DeviceSettings);
+				// En jeu, un appui sur la cellule HANDLING ouvre l'ingenieur de course.
+				if (previousGameRunning && touchInsideHandlingCell())
+					openRaceEngineer();
+				else
+					showSettingsScreen(SettingsScreen::DeviceSettings);
 			}
 			touchCalibrationEntryArmed = false;
 			waitForReleaseAfterScreenChange = true;
