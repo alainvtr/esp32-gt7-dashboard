@@ -1,3 +1,4 @@
+// 06/11/2026 16:05 - Ajout des reglages du conseil de repartition de freinage en roulant (ligne F) ; seuils existants inchanges
 // 06/11/2026 02:05 - Ajout des reglages de l'etagement (passages mesures, virage lent, passages trop tot) et de la saisie des regimes moteur ; seuils existants inchanges
 // 06/11/2026 01:45 - Ajout des reglages des ecrans BOITE (vitesse max) et SUSPENSION (releves) ; seuils existants inchanges
 // 30/10/2026 15:28 - Ajout des reglages de l'ingenieur de course (toucher a l'arret, donnees minimales, classes de R/F, virages rapides, ecart minimal) ; seuils existants inchanges
@@ -106,3 +107,17 @@ static constexpr int ENGINE_RPM_MAX = 20000;
 static constexpr float SUSPENSION_MIN_KMH = 30.0f;	// en deca (et au-dessus de l'arret) : non classe
 static constexpr float SUSPENSION_CORNER_YAW = 0.15f;	// rad/s : virage franc
 static constexpr float SUSPENSION_STRAIGHT_YAW = 0.05f;	// rad/s : ligne droite (acceleration)
+
+// ---------------------------------------------------------------------------
+// Conseil de repartition de freinage en roulant : "F 0.82 >AR" quelques secondes
+// sur la ligne F de la cellule HANDLING (voir src/dashboard/BrakeHint.h).
+// ---------------------------------------------------------------------------
+static constexpr float BRAKE_HINT_WINDOW_S = 10.0f;	// freinage en virage mesure par message
+static constexpr float BRAKE_HINT_MIN_LIFT_S = 3.0f;	// L mesure en deca : L non verifie
+static constexpr float BRAKE_HINT_UNDER_RATIO = 0.85f;	// F en deca : repartition vers l'AR
+static constexpr float BRAKE_HINT_OVER_RATIO = 1.15f;	// F au-dessus : repartition vers l'AV
+static constexpr int BRAKE_HINT_MAX_REPEAT = 3;	// messages de suite dans le meme sens, puis silence
+static constexpr uint32_t BRAKE_HINT_SHOW_MS = 4000;	// duree d'affichage
+static constexpr float BRAKE_HINT_MIN_KMH = 60.0f;	// affichage : ligne droite rapide...
+static constexpr int BRAKE_HINT_MIN_THROTTLE = 80;	// ... gaz ouverts...
+static constexpr float BRAKE_HINT_STRAIGHT_YAW = 0.05f;	// ... sans virage (rad/s)

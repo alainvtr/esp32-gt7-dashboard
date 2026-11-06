@@ -1,3 +1,4 @@
+// 06/11/2026 16:05 - Conseil de repartition de freinage en roulant (BrakeHint), remis a zero au retour en piste ; mode demo : sous-virage au freinage plus marque (80 %) pour le faire apparaitre
 // 06/11/2026 02:05 - Ecran MOTEUR (regimes de couple et de puissance max, ouvert depuis BOITE) ; gaz transmis aux releves de la boite (passages montants mesures)
 // 06/11/2026 01:45 - Ecrans BOITE (appui sur le rapport engage) et SUSPENSION (appui sur TYRE TEMP), a l'arret comme l'ingenieur ; releves boite par tour et suspension par situation, remis a zero au retour en piste ; simules en mode demo
 // 30/10/2026 15:28 - Ingenieur de course (appui sur HANDLING a l'arret) ; en jeu, toucher accepte seulement voiture arretee (<= ENGINEER_STOPPED_KMH) et ecrans de reglage refermes si elle repart ; toucher plus limite a 480x240 (taille reelle du panneau 480x320) ; mode demo : arret de 6 s toutes les 36 s
@@ -55,6 +56,7 @@
 #include "dashboard/RaceEngineer.h"
 #include "dashboard/GearboxTrace.h"
 #include "dashboard/SuspensionTrace.h"
+#include "dashboard/BrakeHint.h"
 #if defined(BOARD_RGB_LED_BLUE_PIN)
 #include "dashboard/ShiftLed.h"
 #endif
@@ -332,6 +334,7 @@ private:
 	RaceEngineer engineer;
 	GearboxTrace gearbox;
 	SuspensionTrace suspension;
+	BrakeHint brakeHint;	// repartition de freinage en roulant (ligne F de HANDLING)
 	float currentSpeedKmh = 0.0f;
 	int32_t currentCarCode = 0;
 #if defined(BOARD_RGB_LED_BLUE_PIN)
@@ -1034,6 +1037,8 @@ public:
 		handling.update({data.speed, data.angularVelocity, data.wheelSteeringAngle,
 			data.wheelBase, data.wheelRPS, data.tyreRadius,
 			throttlePercent, brakePercent}, millis());
+		brakeHint.update(handling, currentSpeedKmh, throttlePercent,
+			data.angularVelocity[HandlingTrace::HANDLING_YAW_AXIS], millis());
 		gearbox.update(currentSpeedKmh, data.EngineRPM, currentGear, throttlePercent, data.gearRatios,
 			data.minAlertRPM, data.calcMaxSpeed, gamePaused, millis());
 		suspension.update(currentSpeedKmh, throttlePercent, brakePercent,
@@ -1287,6 +1292,7 @@ public:
 			// devient le bilan "avant" de l'ingenieur de course, puis nouvelle session.
 			engineer.endSession(RaceEngineer::summarize(handling));
 			handling.resetSession();
+			brakeHint.reset(handling);
 			engineer.selectCar(currentCarCode);
 			// Boite (reglee au garage) et suspension : nouvelle session aussi.
 			gearbox.endSession(currentCarCode);
@@ -1422,14 +1428,14 @@ public:
 		fuelFlow.percentPerMinute = 0.3f + 2.7f * throttle / 100.0f;
 
 		// Comportement: virage gauche/droite toutes les 8 s ; sous-virage au freinage
-		// (lacet a 85 % du neutre), leger sous-virage au lever de pied (95 %), neutre a
+		// (lacet a 80 % du neutre : fait apparaitre le conseil de freinage), leger sous-virage au lever de pied (95 %), neutre a
 		// accelerateur partiel, survirage a pleine charge (120 %). Rien pendant l'arret.
 		if (!demoStopped)
 		{
 			const float demoSpeedMs = (40.0f + (gearIndex - 1) * 38.0f + gearPhase * 38.0f) / 3.6f;
 			const float demoWheelBase = 2.65f;
 			const float demoSteer = 0.08f * sinf(now / 1273.0f);
-			const float demoYawRatio = braking ? 0.85f : (lifting ? 0.95f : (throttle < 50 ? 1.0f : 1.2f));
+			const float demoYawRatio = braking ? 0.80f : (lifting ? 0.95f : (throttle < 50 ? 1.0f : 1.2f));
 			const float demoAngular[3] = {0.0f,
 				demoYawRatio * demoSpeedMs * tanf(demoSteer) / demoWheelBase, 0.0f};
 			const float demoSteerAngles[2] = {demoSteer, demoSteer};
@@ -1449,6 +1455,7 @@ public:
 				(demoSpeedMs + rearTrackSpeedMs + spinRight) / demoRadius[3]};
 			handling.update({demoSpeedMs, demoAngular, demoSteerAngles, demoWheelBase,
 				demoWheelRps, demoRadius, throttle, brakeInput}, now);
+			brakeHint.update(handling, demoSpeedMs * 3.6f, throttle, demoAngular[1], now);
 		}
 		
 		// Boite : 6 rapports, passage a rpmAlertMinRpm, un "tour" toutes les 12 s.

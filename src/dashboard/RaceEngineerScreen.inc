@@ -1,3 +1,4 @@
+// 06/11/2026 16:05 - RAZ / FAIT remettent aussi a zero le conseil de freinage en roulant
 // 06/11/2026 01:45 - Bouton FAIT (conseil applique ; pour la repartition de freinage, reglee en piste, FAIT fait aussi la RAZ) ; appuyer de nouveau l'annule ; 3 boutons en bas
 // 30/10/2026 15:28 - Creation : ecran de l'ingenieur de course (480x320) ouvert par un appui sur la cellule HANDLING a l'arret : transmission, bilan F/L/M/S avant / maintenant, comparaison, conseil, boutons RAZ MESURES et RETOUR AU DASHBOARD
 // Ce fichier est inclus DANS la classe SHCustomProtocol (apres RadarTheme.inc,
@@ -75,6 +76,7 @@ void resetRaceEngineerSession()
 	engineer.endSession(RaceEngineer::summarize(handling));
 	handling.resetSession();
 	handling.reset();
+	brakeHint.reset(handling);	// reglage fait a l'arret : compteurs du conseil en piste a zero
 }
 
 // FAIT n'existe que s'il y a un reglage a appliquer (ou un FAIT a annuler).

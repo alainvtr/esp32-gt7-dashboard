@@ -1,3 +1,4 @@
+// 06/11/2026 16:05 - Ligne F de HANDLING : conseil de repartition de freinage ("F 0.82 >AR", ambre) pendant quelques secondes
 // 27/10/2026 19:30 - Nettoyage (theme Radar seul) : plus de liberation des sprites pour l'apercu de theme (menu supprime) ; couleurs de temperature des pneus reprises de l'ancien ClassicTheme.inc
 // 25/10/2026 21:00 - Case FUEL : debit et unite "%/m" sur une seule ligne (valeur police 1 x1,2), bas des textes aligne sur celui du pourcentage
 // 25/10/2026 20:50 - Case FUEL : libelle REM % FUEL (REM EV inchange), debit en plus petit (police 1 x1,4) avec l'unite %/min dessous (GT7 donne le niveau en % du reservoir, pas en litres)
@@ -941,9 +942,13 @@ static constexpr int LAP_STRIP_CELLS_X = LAP_STRIP_X +
 			case HandlingTrace::TENDENCY_OVER: handlingColor = red; break;
 			default: break;
 			}
+			// Ligne F : conseil de repartition de freinage pendant quelques secondes.
+			const bool brakeHintLine = i == HandlingTrace::PHASE_BRAKE && brakeHint.showing();
+			if (brakeHintLine) handlingColor = tft.color565(240, 170, 40);
 			drawRadarValue(rightValueX,
 				cellY(HANDLING_CELL) + HANDLING_LINE_DY + i * HANDLING_LINE_STEP,
-				COLUMN_CONTENT_WIDTH, HANDLING_LINE_HEIGHT, state.handling.lines[i],
+				COLUMN_CONTENT_WIDTH, HANDLING_LINE_HEIGHT,
+				brakeHintLine ? brakeHint.line() : state.handling.lines[i],
 				handlingIds[i], handlingColor, 1, ML_DATUM, redraw,
 				HANDLING_LINE_SCALE_X, HANDLING_LINE_SCALE_Y);
 		}
