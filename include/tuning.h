@@ -1,3 +1,5 @@
+// 06/11/2026 02:05 - Ajout des reglages de l'etagement (passages mesures, virage lent, passages trop tot) et de la saisie des regimes moteur ; seuils existants inchanges
+// 06/11/2026 01:45 - Ajout des reglages des ecrans BOITE (vitesse max) et SUSPENSION (releves) ; seuils existants inchanges
 // 30/10/2026 15:28 - Ajout des reglages de l'ingenieur de course (toucher a l'arret, donnees minimales, classes de R/F, virages rapides, ecart minimal) ; seuils existants inchanges
 // 23/10/2026 15:05 - Creation : reglages ajustables a la main (detection du pit, analyse HANDLING, LED de passage de rapport), regroupes hors du code pour ne plus etre ecrases par une livraison
 #pragma once
@@ -77,3 +79,30 @@ static constexpr float ENGINEER_BAND_MIN_TIME_S = 5.0f;	// donnees minimales par
 static constexpr float ENGINEER_MIN_CHANGE = 0.03f;
 // Pas des conseils DGL (Initial / Accel / Decel).
 static constexpr int ENGINEER_DGL_STEP = 5;
+
+// ---------------------------------------------------------------------------
+// Ecran BOITE (appui sur le rapport engage, a l'arret) : reglage "vitesse max"
+// de la transmission, d'apres le dernier rapport, par tour complet sans pit.
+// Regime de passage = minAlertRPM envoye par le jeu.
+// ---------------------------------------------------------------------------
+static constexpr int ENGINEER_GEAR_MIN_LAPS = 2;	// tours complets avant de conclure
+static constexpr float ENGINEER_GEAR_LIMIT_RATIO = 1.0f;	// "au passage" : regime >= ce ratio x passage
+static constexpr float ENGINEER_GEAR_SHORT_S = 0.5f;	// s/tour au passage sur le dernier rapport : trop courte
+static constexpr float ENGINEER_GEAR_UNUSED_S = 0.5f;	// s/tour sur le dernier rapport en deca : trop longue
+static constexpr float ENGINEER_GEAR_LONG_RATIO = 0.90f;	// regime max / passage en deca : trop longue
+static constexpr int ENGINEER_GEAR_STEP_PERCENT = 5;	// pas du conseil (trop courte, rapport inutilise)
+// Etagement (si les regimes de couple max et de puissance max sont saisis : ecran MOTEUR).
+static constexpr int ENGINEER_GEAR_SHIFT_MIN_THROTTLE = 50;	// % de gaz : passage montant mesure
+static constexpr float ENGINEER_GEAR_CORNER_MIN_KMH = 25.0f;	// point le plus lent : au-dessus (tete-a-queue exclu)
+static constexpr float ENGINEER_GEAR_EARLY_RATIO = 0.97f;	// passage < ce ratio x puissance max : trop tot
+// Saisie des regimes (ecran MOTEUR).
+static constexpr int ENGINE_RPM_SMALL_STEP = 100;
+static constexpr int ENGINE_RPM_LARGE_STEP = 1000;
+static constexpr int ENGINE_RPM_MAX = 20000;
+
+// ---------------------------------------------------------------------------
+// Ecran SUSPENSION (appui sur TYRE TEMP, a l'arret) : releves par situation.
+// ---------------------------------------------------------------------------
+static constexpr float SUSPENSION_MIN_KMH = 30.0f;	// en deca (et au-dessus de l'arret) : non classe
+static constexpr float SUSPENSION_CORNER_YAW = 0.15f;	// rad/s : virage franc
+static constexpr float SUSPENSION_STRAIGHT_YAW = 0.05f;	// rad/s : ligne droite (acceleration)

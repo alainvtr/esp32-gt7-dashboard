@@ -1,3 +1,5 @@
+// 06/11/2026 02:05 - Regimes de couple max et de puissance max memorises par voiture (cle separee "m<carCode>", l'enregistrement v2 ne change pas) pour l'etagement de la boite
+// 06/11/2026 01:45 - Bouton FAIT : conseil marque applique (comparaison certaine "Accel +5 : S 1.20 -> 1.05"), sinon session "sans changement" (ecart = bruit de mesure) ; enregistrement v2 (la transmission des enregistrements v1 est reprise)
 // 30/10/2026 15:28 - Creation : ingenieur de course (bilan de session F/L/M/S, un conseil DGL / repartition de freinage / chassis, comparaison avec la session precedente), memorise par voiture (carCode) en flash
 #pragma once
 
@@ -6,6 +8,7 @@
 #include <math.h>
 #include "tuning.h"
 #include "HandlingTrace.h"
+#include "GearboxTrace.h"
 
 // Ingenieur de course : analyse les cumuls de session de HandlingTrace et donne
 // UN conseil, dans l'ordre de la methode de reglage :
@@ -18,8 +21,10 @@
 // voiture (carCode) : la session suivante est comparee a ce bilan "avant".
 //
 // Les valeurs du DGL ne sont pas saisies : les conseils sont relatifs ("Accel +5").
-// La carte ne sait donc pas si le conseil a ete applique ; la comparaison est
-// formulee "Si <conseil> fait : ...".
+// Le bouton FAIT indique que le conseil a ete applique : la session suivante est
+// comparee sur la ligne visee ("Accel +5 : S 1.20 -> 1.05 mieux"). Une session
+// terminee sans FAIT est "sans changement" : l'ecart avec la precedente donne le
+// bruit de mesure (pilotage, pneus, carburant), a comparer a ENGINEER_MIN_CHANGE.
 //
 // Les conseils DGL ne valent que pour une propulsion (FR / MR / RR) : R/F compare
 // l'ecart des roues arriere (motrices) a celui des roues avant (libres).
@@ -27,7 +32,8 @@ class RaceEngineer
 {
 public:
 	enum Drivetrain : uint8_t { DRIVE_UNKNOWN, DRIVE_FR, DRIVE_MR, DRIVE_RR, DRIVE_OTHER };
-	enum Verdict : uint8_t { VERDICT_NONE, VERDICT_WAITING, VERDICT_BETTER, VERDICT_WORSE, VERDICT_NO_EFFECT };
+	enum Verdict : uint8_t { VERDICT_NONE, VERDICT_WAITING, VERDICT_BETTER, VERDICT_WORSE, VERDICT_NO_EFFECT,
+		VERDICT_NOISE };	// NOISE : session precedente sans changement
 	enum AdviceKind : uint8_t { ADVICE_INFO, ADVICE_SETTING, ADVICE_OK };
 
 	static constexpr int PHASE_COUNT = HandlingTrace::PHASE_COUNT;
@@ -68,6 +74,7 @@ public:
 		char action[64] = "";
 		char note[64] = "";
 		char label[24] = "";	// forme courte, reprise dans la comparaison
+		bool onTrack = false;	// reglable en piste (repartition de freinage) : FAIT fait aussi la RAZ
 	};
 
 	// Bilan "avant" (session precedente) d'une phase, pour l'affichage.
@@ -88,14 +95,35 @@ public:
 		carCode_ = carCode;
 		hasCar_ = true;
 		record_ = CarRecord();
+		engine_ = GearboxTrace::EngineBand();
+		cancelApplied();
 		if (!ready_) return;
 		char key[16];
+		makeEngineKey(key, sizeof(key));
+		if (prefs_.getBytesLength(key) == sizeof(EngineRecord))
+		{
+			EngineRecord stored;
+			prefs_.getBytes(key, &stored, sizeof(stored));
+			engine_.torqueRpm = stored.torqueRpm;
+			engine_.powerRpm = stored.powerRpm;
+		}
 		makeKey(key, sizeof(key));
-		if (prefs_.getBytesLength(key) != sizeof(CarRecord)) return;
-		CarRecord stored;
-		prefs_.getBytes(key, &stored, sizeof(stored));
-		if (stored.version == RECORD_VERSION)
-			record_ = stored;
+		const size_t length = prefs_.getBytesLength(key);
+		if (length == sizeof(CarRecord))
+		{
+			CarRecord stored;
+			prefs_.getBytes(key, &stored, sizeof(stored));
+			if (stored.version == RECORD_VERSION)
+				record_ = stored;
+		}
+		else if (length >= 2 && length <= 128)
+		{
+			// Enregistrement d'une version precedente : seule la transmission est reprise.
+			uint8_t raw[128];
+			prefs_.getBytes(key, raw, length);
+			if (raw[0] == 1 && raw[1] <= DRIVE_OTHER)
+				record_.drivetrain = raw[1];
+		}
 	}
 
 	bool hasCar() const { return hasCar_; }
@@ -107,6 +135,38 @@ public:
 		record_.drivetrain = drivetrain;
 		save();
 	}
+
+	// Plage utile du moteur (ecran MOTEUR), memorisee pour la voiture.
+	const GearboxTrace::EngineBand &engineBand() const { return engine_; }
+	void setEngineBand(int torqueRpm, int powerRpm)
+	{
+		engine_.torqueRpm = constrain(torqueRpm, 0, ENGINE_RPM_MAX);
+		engine_.powerRpm = constrain(powerRpm, 0, ENGINE_RPM_MAX);
+		if (!ready_ || !hasCar_) return;
+		EngineRecord stored;
+		stored.torqueRpm = static_cast<uint16_t>(engine_.torqueRpm);
+		stored.powerRpm = static_cast<uint16_t>(engine_.powerRpm);
+		char key[16];
+		makeEngineKey(key, sizeof(key));
+		prefs_.putBytes(key, &stored, sizeof(stored));
+	}
+
+	// Bouton FAIT : le conseil affiche est applique (pris en compte en fin de session).
+	void markApplied(const Advice &advice)
+	{
+		if (advice.kind != ADVICE_SETTING || advice.line < 0) return;
+		appliedPending_ = true;
+		appliedLine_ = advice.line;
+		snprintf(appliedLabel_, sizeof(appliedLabel_), "%s", advice.label);
+	}
+	void cancelApplied()
+	{
+		appliedPending_ = false;
+		appliedLine_ = -1;
+		appliedLabel_[0] = '\0';
+	}
+	bool appliedPending() const { return appliedPending_; }
+	const char *appliedLabel() const { return appliedLabel_; }
 
 	BeforePhase before(int phase) const
 	{
@@ -143,42 +203,55 @@ public:
 		return summary;
 	}
 
-	// Fin de session : son bilan devient "avant" et le conseil qu'il donnait est
-	// memorise pour la comparaison. Une session trop courte (aucune ligne valide)
-	// ne remplace pas le bilan precedent.
+	// Fin de session : son bilan devient "avant", avec le reglage marque FAIT (ou
+	// "sans changement"). Une session trop courte (aucune ligne valide) ne remplace
+	// pas le bilan precedent ; un FAIT y est tout de meme retenu (le changement
+	// sera alors compare au bilan precedent).
 	bool endSession(const Summary &summary)
 	{
-		if (!hasCar_ || !summary.anyValid()) return false;
-		for (int p = 0; p < PHASE_COUNT; ++p)
+		if (!hasCar_) return false;
+		const bool measured = summary.anyValid();
+		if (!measured && !appliedPending_) return false;
+		if (measured)
 		{
-			record_.beforeBalance[p] = summary.phase[p].balance;
-			record_.beforeTimeS[p] = summary.phase[p].balanceTimeS;
-			record_.beforeLock[p] = summary.phase[p].lock;
-			record_.beforeLockTimeS[p] = summary.phase[p].lockTimeS;
+			for (int p = 0; p < PHASE_COUNT; ++p)
+			{
+				record_.beforeBalance[p] = summary.phase[p].balance;
+				record_.beforeTimeS[p] = summary.phase[p].balanceTimeS;
+				record_.beforeLock[p] = summary.phase[p].lock;
+				record_.beforeLockTimeS[p] = summary.phase[p].lockTimeS;
+			}
+			record_.hasBefore = 1;
 		}
-		record_.hasBefore = 1;
-		const Advice advice = analyze(summary);
-		record_.adviceLine = advice.kind == ADVICE_SETTING ? advice.line : -1;
-		snprintf(record_.adviceLabel, sizeof(record_.adviceLabel), "%s",
-			advice.kind == ADVICE_SETTING ? advice.label : "");
+		record_.lastApplied = appliedPending_ ? 1 : 0;
+		record_.lastLine = appliedLine_;
+		snprintf(record_.lastLabel, sizeof(record_.lastLabel), "%s", appliedLabel_);
+		cancelApplied();
 		save();
 		return true;
 	}
 
-	// Effet du conseil de la session precedente sur la ligne visee.
+	// Effet du reglage marque FAIT a la session precedente, sur la ligne visee ;
+	// sans FAIT, plus grand ecart d'equilibre entre les deux sessions (bruit).
 	Verdict compare(const Summary &now, char *text, size_t size) const
 	{
 		text[0] = '\0';
-		const int line = record_.adviceLine;
-		if (!record_.hasBefore || line < 0 || line >= PHASE_COUNT ||
-			record_.beforeTimeS[line] < ENGINEER_MIN_TIME_S)
-			return VERDICT_NONE;
+		if (!record_.hasBefore) return VERDICT_NONE;
+		if (!record_.lastApplied) return compareUnchanged(now, text, size);
+		const int line = record_.lastLine;
+		if (line < 0 || line >= PHASE_COUNT) return VERDICT_NONE;
 		const char name = phaseName(line);
+		if (record_.beforeTimeS[line] < ENGINEER_MIN_TIME_S)
+		{
+			snprintf(text, size, "%s : pas de mesure %c avant le changement",
+				record_.lastLabel, name);
+			return VERDICT_WAITING;
+		}
 		const float before = record_.beforeBalance[line];
 		if (!now.phase[line].valid())
 		{
-			snprintf(text, size, "Si %s fait : %c %.2f -> en attente de donnees",
-				record_.adviceLabel, name, before);
+			snprintf(text, size, "%s : %c %.2f -> en attente de donnees",
+				record_.lastLabel, name, before);
 			return VERDICT_WAITING;
 		}
 		const float current = now.phase[line].balance;
@@ -195,8 +268,8 @@ public:
 			verdict = VERDICT_WORSE;
 			conclusion = "pire, revenir";
 		}
-		snprintf(text, size, "Si %s fait : %c %.2f -> %.2f %s",
-			record_.adviceLabel, name, before, current, conclusion);
+		snprintf(text, size, "%s : %c %.2f -> %.2f %s",
+			record_.lastLabel, name, before, current, conclusion);
 		return verdict;
 	}
 
@@ -261,21 +334,22 @@ public:
 	}
 
 private:
-	static constexpr uint8_t RECORD_VERSION = 1;
+	static constexpr uint8_t RECORD_VERSION = 2;
 	enum LockClass : uint8_t { LOCK_UNKNOWN, LOCK_SPIN, LOCK_LOCKED, LOCK_PARTIAL, LOCK_FREE };
 
 	// Memorise en flash pour chaque voiture (cle "c<carCode>").
 	struct CarRecord
 	{
-		uint8_t version = RECORD_VERSION;
-		uint8_t drivetrain = DRIVE_UNKNOWN;
-		int8_t adviceLine = -1;
+		uint8_t version = RECORD_VERSION;	// octet 0 (lu aussi pour les versions precedentes)
+		uint8_t drivetrain = DRIVE_UNKNOWN;	// octet 1
+		int8_t lastLine = -1;	// ligne visee par le reglage marque FAIT
 		uint8_t hasBefore = 0;
+		uint8_t lastApplied = 0;	// 1 = FAIT a la session precedente, 0 = sans changement
 		float beforeBalance[PHASE_COUNT] = {NAN, NAN, NAN, NAN};
 		float beforeTimeS[PHASE_COUNT] = {0, 0, 0, 0};
 		float beforeLock[PHASE_COUNT] = {NAN, NAN, NAN, NAN};
 		float beforeLockTimeS[PHASE_COUNT] = {0, 0, 0, 0};
-		char adviceLabel[24] = "";
+		char lastLabel[24] = "";
 	};
 
 	static HandlingTrace::Tendency tendencyOfBalance(float balance)
@@ -299,6 +373,26 @@ private:
 		if (phase.lock < ENGINEER_LOCK_LOCKED_MAX) return LOCK_LOCKED;
 		if (phase.lock < ENGINEER_LOCK_FREE_MIN) return LOCK_PARTIAL;
 		return LOCK_FREE;
+	}
+
+	Verdict compareUnchanged(const Summary &now, char *text, size_t size) const
+	{
+		float largest = -1.0f;
+		int largestLine = -1;
+		for (int p = 0; p < PHASE_COUNT; ++p)
+		{
+			if (!now.phase[p].valid() || record_.beforeTimeS[p] < ENGINEER_MIN_TIME_S) continue;
+			const float change = fabsf(now.phase[p].balance - record_.beforeBalance[p]);
+			if (change > largest)
+			{
+				largest = change;
+				largestLine = p;
+			}
+		}
+		if (largestLine < 0) return VERDICT_NONE;
+		snprintf(text, size, "Sans changement : ecart max %.2f (%c), seuil %.2f",
+			largest, phaseName(largestLine), ENGINEER_MIN_CHANGE);
+		return VERDICT_NOISE;
 	}
 
 	static void setText(Advice &a, AdviceKind kind, int line, const char *diagnosis,
@@ -404,11 +498,12 @@ private:
 		diagnosisOf(line, phase, diagnosis, sizeof(diagnosis));
 		const bool under = tendencyOf(phase) == HandlingTrace::TENDENCY_UNDER;
 		const char *note = lift.valid()
-			? "L neutre : DGL hors de cause. En piste, puis RAZ"
-			: "L sans donnees : essayer le frein d'abord, puis RAZ";
+			? "L neutre : DGL hors de cause. Reglable en piste"
+			: "L sans donnees : essayer le frein d'abord";
 		setText(a, ADVICE_SETTING, line, diagnosis,
 			under ? "Repartition de freinage vers l'ARRIERE" : "Repartition de freinage vers l'AVANT",
 			note, under ? "Frein vers l'AR" : "Frein vers l'AV");
+		a.onTrack = true;
 		return a;
 	}
 
@@ -504,6 +599,17 @@ private:
 		snprintf(key, size, "c%ld", static_cast<long>(carCode_));
 	}
 
+	void makeEngineKey(char *key, size_t size) const
+	{
+		snprintf(key, size, "m%ld", static_cast<long>(carCode_));
+	}
+
+	struct EngineRecord
+	{
+		uint16_t torqueRpm = 0;
+		uint16_t powerRpm = 0;
+	};
+
 	void save()
 	{
 		if (!ready_ || !hasCar_) return;
@@ -517,4 +623,8 @@ private:
 	bool hasCar_ = false;
 	int32_t carCode_ = 0;
 	CarRecord record_;
+	GearboxTrace::EngineBand engine_;
+	bool appliedPending_ = false;
+	int8_t appliedLine_ = -1;
+	char appliedLabel_[24] = "";
 };

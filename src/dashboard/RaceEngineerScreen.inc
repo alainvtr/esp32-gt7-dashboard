@@ -1,3 +1,4 @@
+// 06/11/2026 01:45 - Bouton FAIT (conseil applique ; pour la repartition de freinage, reglee en piste, FAIT fait aussi la RAZ) ; appuyer de nouveau l'annule ; 3 boutons en bas
 // 30/10/2026 15:28 - Creation : ecran de l'ingenieur de course (480x320) ouvert par un appui sur la cellule HANDLING a l'arret : transmission, bilan F/L/M/S avant / maintenant, comparaison, conseil, boutons RAZ MESURES et RETOUR AU DASHBOARD
 // Ce fichier est inclus DANS la classe SHCustomProtocol (apres RadarTheme.inc,
 // dont il reprend la geometrie de la cellule HANDLING pour la zone d'appui).
@@ -36,14 +37,17 @@ static constexpr int ENG_ACTION_Y = 224;
 static constexpr int ENG_NOTE_Y = 245;
 static constexpr int ENG_BUTTON_Y = 264;
 static constexpr int ENG_BUTTON_HEIGHT = 50;
-static constexpr int ENG_RESET_X = 8;
-static constexpr int ENG_RESET_WIDTH = 200;
-static constexpr int ENG_BACK_X = 222;
+static constexpr int ENG_DONE_X = 8;
+static constexpr int ENG_DONE_WIDTH = 110;
+static constexpr int ENG_RESET_X = 126;
+static constexpr int ENG_RESET_WIDTH = 150;
+static constexpr int ENG_BACK_X = 284;
 static constexpr int ENG_BACK_WIDTH = SCREEN_WIDTH - 8 - ENG_BACK_X;
 
 // Boutons de l'ecran (numeros passes par settingsButtonAtTouch / activateSettingsButton).
 static constexpr int ENG_BUTTON_RESET = ENG_DRIVE_BUTTON_COUNT;
 static constexpr int ENG_BUTTON_BACK = ENG_DRIVE_BUTTON_COUNT + 1;
+static constexpr int ENG_BUTTON_DONE = ENG_DRIVE_BUTTON_COUNT + 2;
 
 static int engineerDriveButtonX(int index)
 {
@@ -67,9 +71,16 @@ void openRaceEngineer()
 // piste, typiquement la repartition de freinage), et on repart de zero.
 void resetRaceEngineerSession()
 {
+	// Mesures, puis remise a zero (le FAIT eventuel est retenu par endSession).
 	engineer.endSession(RaceEngineer::summarize(handling));
 	handling.resetSession();
 	handling.reset();
+}
+
+// FAIT n'existe que s'il y a un reglage a appliquer (ou un FAIT a annuler).
+bool engineerDoneAvailable(const RaceEngineer::Advice &advice) const
+{
+	return engineer.appliedPending() || advice.kind == RaceEngineer::ADVICE_SETTING;
 }
 
 uint16_t engineerTendencyColor(float balance) const
@@ -175,8 +186,22 @@ void drawRaceEngineerScreen(int pressedButton)
 	tft.setTextColor(TFT_WHITE, TFT_BLACK);
 	tft.drawString(advice.action, ENG_TITLE_X, ENG_ACTION_Y, 2);
 	tft.setTextColor(grey, TFT_BLACK);
-	tft.drawString(advice.note, ENG_TITLE_X, ENG_NOTE_Y, 2);
+	if (engineer.appliedPending())
+	{
+		// Le reglage marque FAIT remplace la note : il sera compare au retour en piste.
+		tft.setTextColor(tft.color565(110, 200, 90), TFT_BLACK);
+		tft.drawString(String("FAIT : ") + engineer.appliedLabel() + ", compare au retour en piste",
+			ENG_TITLE_X, ENG_NOTE_Y, 2);
+	}
+	else
+	{
+		tft.drawString(advice.note, ENG_TITLE_X, ENG_NOTE_Y, 2);
+	}
 
+	if (engineerDoneAvailable(advice))
+		drawSettingsButton(ENG_DONE_X, ENG_BUTTON_Y, ENG_DONE_WIDTH, ENG_BUTTON_HEIGHT,
+			engineer.appliedPending() ? "ANNULER" : "FAIT", pressedButton == ENG_BUTTON_DONE,
+			engineer.appliedPending());
 	drawSettingsButton(ENG_RESET_X, ENG_BUTTON_Y, ENG_RESET_WIDTH, ENG_BUTTON_HEIGHT,
 		"RAZ MESURES", pressedButton == ENG_BUTTON_RESET);
 	drawSettingsButton(ENG_BACK_X, ENG_BUTTON_Y, ENG_BACK_WIDTH, ENG_BUTTON_HEIGHT,
@@ -190,6 +215,9 @@ int raceEngineerButtonAtTouch() const
 		if (touchInside(engineerDriveButtonX(i), ENG_DRIVE_BUTTON_Y,
 				ENG_DRIVE_BUTTON_WIDTH, ENG_DRIVE_BUTTON_HEIGHT))
 			return i;
+	if (touchInside(ENG_DONE_X, ENG_BUTTON_Y, ENG_DONE_WIDTH, ENG_BUTTON_HEIGHT) &&
+		engineerDoneAvailable(engineer.analyze(RaceEngineer::summarize(handling))))
+		return ENG_BUTTON_DONE;
 	if (touchInside(ENG_RESET_X, ENG_BUTTON_Y, ENG_RESET_WIDTH, ENG_BUTTON_HEIGHT))
 		return ENG_BUTTON_RESET;
 	if (touchInside(ENG_BACK_X, ENG_BUTTON_Y, ENG_BACK_WIDTH, ENG_BUTTON_HEIGHT))
@@ -207,6 +235,22 @@ void activateRaceEngineerButton(int button)
 	else if (button == ENG_BUTTON_RESET)
 	{
 		resetRaceEngineerSession();
+		drawSettingsScreen();
+	}
+	else if (button == ENG_BUTTON_DONE)
+	{
+		if (engineer.appliedPending())
+		{
+			engineer.cancelApplied();
+		}
+		else
+		{
+			const RaceEngineer::Advice advice = engineer.analyze(RaceEngineer::summarize(handling));
+			engineer.markApplied(advice);
+			// Repartition de freinage, reglee en piste : nouvelle session tout de suite.
+			if (advice.onTrack)
+				resetRaceEngineerSession();
+		}
 		drawSettingsScreen();
 	}
 	else if (button == ENG_BUTTON_BACK)

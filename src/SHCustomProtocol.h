@@ -1,3 +1,5 @@
+// 06/11/2026 02:05 - Ecran MOTEUR (regimes de couple et de puissance max, ouvert depuis BOITE) ; gaz transmis aux releves de la boite (passages montants mesures)
+// 06/11/2026 01:45 - Ecrans BOITE (appui sur le rapport engage) et SUSPENSION (appui sur TYRE TEMP), a l'arret comme l'ingenieur ; releves boite par tour et suspension par situation, remis a zero au retour en piste ; simules en mode demo
 // 30/10/2026 15:28 - Ingenieur de course (appui sur HANDLING a l'arret) ; en jeu, toucher accepte seulement voiture arretee (<= ENGINEER_STOPPED_KMH) et ecrans de reglage refermes si elle repart ; toucher plus limite a 480x240 (taille reelle du panneau 480x320) ; mode demo : arret de 6 s toutes les 36 s
 // 28/10/2026 00:30 - REM TIME calcule en course (il n'etait alimente qu'en mode demo, donc toujours "--:--") : tours de carburant restants x temps moyen des tours propres (hors pit) de l'historique
 // 27/10/2026 19:30 - Nettoyage : theme Radar seul (autres themes, menu de selection et apercu supprimes), carte 3248S035 seule (support 2432S028 retire), reglages ouverts directement sur l'ecran SETTINGS (luminosite, reset Wi-Fi) ; aides d'ecran (fondu, toucher) reprises de ClassicTheme.inc
@@ -51,6 +53,8 @@
 #include "dashboard/HandlingTrace.h"
 #include "dashboard/FuelFlow.h"
 #include "dashboard/RaceEngineer.h"
+#include "dashboard/GearboxTrace.h"
+#include "dashboard/SuspensionTrace.h"
 #if defined(BOARD_RGB_LED_BLUE_PIN)
 #include "dashboard/ShiftLed.h"
 #endif
@@ -308,6 +312,9 @@ private:
 		WifiResetConfirmation,
 		TouchCalibration,
 		Engineer,	// ingenieur de course (appui sur HANDLING a l'arret)
+		Gearbox,	// boite (appui sur le rapport engage a l'arret)
+		Engine,	// regimes moteur de la voiture (bouton MOTEUR de l'ecran BOITE)
+		Suspension,	// releves de suspension (appui sur TYRE TEMP a l'arret)
 	};
 
 	static constexpr unsigned long SETTINGS_TIMEOUT_MS = 15000UL;
@@ -323,6 +330,8 @@ private:
 
 	// Ingenieur de course, vitesse (toucher accepte seulement a l'arret) et voiture en piste.
 	RaceEngineer engineer;
+	GearboxTrace gearbox;
+	SuspensionTrace suspension;
 	float currentSpeedKmh = 0.0f;
 	int32_t currentCarCode = 0;
 #if defined(BOARD_RGB_LED_BLUE_PIN)
@@ -779,11 +788,13 @@ public:
 			turboBoostMaxBar = 0.0f;
 			turboBoostMinBar = 0.0f;
 			handling.reset();
+			gearbox.discardLap();
 		}
 
 		// Fin de tour: lapCount augmente (le faux passage 0 -> 1 du départ est ignoré).
 		if (lapCount > lapTracker.previousLapCount)
 		{
+			gearbox.endLap(lapTracker.pitSeen);
 			if (lapTracker.previousLapCount >= 1 && lastLapMs > 0)
 				pushLapHistory(lapTracker.previousLapCount, lastLapMs, lapTracker.pitSeen);
 			lapTracker.pitSeen = false;
@@ -1023,6 +1034,11 @@ public:
 		handling.update({data.speed, data.angularVelocity, data.wheelSteeringAngle,
 			data.wheelBase, data.wheelRPS, data.tyreRadius,
 			throttlePercent, brakePercent}, millis());
+		gearbox.update(currentSpeedKmh, data.EngineRPM, currentGear, throttlePercent, data.gearRatios,
+			data.minAlertRPM, data.calcMaxSpeed, gamePaused, millis());
+		suspension.update(currentSpeedKmh, throttlePercent, brakePercent,
+			data.angularVelocity[HandlingTrace::HANDLING_YAW_AXIS], data.suspHeight,
+			data.bodyHeight, gamePaused, millis());
 
 		tcLevel = String(throttlePercent);
 		absLevel = String(brakePercent);
@@ -1272,7 +1288,10 @@ public:
 			engineer.endSession(RaceEngineer::summarize(handling));
 			handling.resetSession();
 			engineer.selectCar(currentCarCode);
-			if (settingsScreen == SettingsScreen::Engineer)
+			// Boite (reglee au garage) et suspension : nouvelle session aussi.
+			gearbox.endSession(currentCarCode);
+			suspension.reset();
+			if (isAnalysisScreen())
 				drawSettingsScreen();
 			// Nouvelle session (retour en piste) : pas de valeurs de la session precedente.
 			handling.reset();
@@ -1432,6 +1451,31 @@ public:
 				demoWheelRps, demoRadius, throttle, brakeInput}, now);
 		}
 		
+		// Boite : 6 rapports, passage a rpmAlertMinRpm, un "tour" toutes les 12 s.
+		// Suspension : l'avant s'enfonce au freinage, l'arriere a l'acceleration, le
+		// cote exterieur en virage (valeurs fictives, de l'ordre de 0,06).
+		{
+			static const float demoRatios[GearboxTrace::MAX_GEARS] = {
+				3.2f, 2.3f, 1.8f, 1.4f, 1.15f, 0.95f, 0.0f, 0.0f};
+			const int demoGear = demoStopped ? 15 : gearIndex;
+			gearbox.update(currentSpeedKmh, static_cast<float>(engineRpm), demoGear, throttle,
+				demoRatios, rpmAlertMinRpm, 300, false, now);
+			static uint32_t lastDemoGearLap = 0;
+			if (now / 12000 != lastDemoGearLap)
+			{
+				lastDemoGearLap = now / 12000;
+				gearbox.endLap(false);
+			}
+			const float demoYaw = demoStopped ? 0.0f : 0.4f * sinf(now / 1273.0f);
+			const float pitch = braking && !demoStopped ? -0.012f : (throttle > 90 ? 0.006f : 0.0f);
+			const float roll = 0.02f * demoYaw;	// virage a gauche : cote droit enfonce
+			const float demoSusp[4] = {
+				0.060f + pitch + roll, 0.060f + pitch - roll,
+				0.062f - pitch + roll, 0.062f - pitch - roll};
+			suspension.update(currentSpeedKmh, throttle, brakeInput, demoYaw, demoSusp,
+				0.080f + 0.5f * pitch, false, now);
+		}
+
 		// Historique des tours simule: un tour toutes les 12 s, un tour sur 5 "au stand".
 		const uint32_t demoLap = now / 12000;
 		clearLapHistory();
@@ -1550,6 +1594,7 @@ public:
 
 #include "dashboard/themes/RadarTheme.inc"
 #include "dashboard/RaceEngineerScreen.inc"
+#include "dashboard/AnalysisScreens.inc"
 
 	void drawTouchCalibrationHint(bool confirm)
 	{
@@ -1985,6 +2030,18 @@ public:
 		{
 			drawRaceEngineerScreen(pressedButton);
 		}
+		else if (settingsScreen == SettingsScreen::Gearbox)
+		{
+			drawGearboxScreen(pressedButton);
+		}
+		else if (settingsScreen == SettingsScreen::Engine)
+		{
+			drawEngineScreen(pressedButton);
+		}
+		else if (settingsScreen == SettingsScreen::Suspension)
+		{
+			drawSuspensionScreen(pressedButton);
+		}
 
 		tft.setTextDatum(TL_DATUM);
 	}
@@ -2113,6 +2170,10 @@ public:
 		{
 			return raceEngineerButtonAtTouch();
 		}
+		else if (isAnalysisScreen())
+		{
+			return analysisButtonAtTouch();
+		}
 		return -1;
 	}
 
@@ -2179,6 +2240,10 @@ public:
 		else if (settingsScreen == SettingsScreen::Engineer)
 		{
 			activateRaceEngineerButton(button);
+		}
+		else if (isAnalysisScreen())
+		{
+			activateAnalysisButton(button);
 		}
 	}
 
@@ -2282,9 +2347,10 @@ public:
 
 		if (settingsScreen != SettingsScreen::Closed)
 		{
-			// Pas de fermeture automatique pour l'ingenieur : on le lit a l'arret (ou au
-			// garage) aussi longtemps que voulu ; il se ferme quand la voiture repart.
-			if (settingsScreen != SettingsScreen::Engineer &&
+			// Pas de fermeture automatique pour l'ingenieur, la boite et la suspension :
+			// on les lit a l'arret (ou au garage) aussi longtemps que voulu ; ils se
+			// ferment quand la voiture repart.
+			if (!isAnalysisScreen() &&
 				!isTouched && settingsLastInteractionTime != 0 &&
 				millis() - settingsLastInteractionTime >= SETTINGS_TIMEOUT_MS)
 			{
@@ -2336,9 +2402,14 @@ public:
 			{
 				touchCalibrationAwaitingSecondTap = false;
 				touchCalibrationFirstTapTime = 0;
-				// En jeu, un appui sur la cellule HANDLING ouvre l'ingenieur de course.
+				// En jeu : HANDLING ouvre l'ingenieur de course, le rapport engage l'ecran
+				// BOITE, TYRE TEMP l'ecran SUSPENSION ; ailleurs, les reglages.
 				if (previousGameRunning && touchInsideHandlingCell())
 					openRaceEngineer();
+				else if (previousGameRunning && touchInsideGearZone())
+					openGearbox();
+				else if (previousGameRunning && touchInsideTyreZone())
+					showSettingsScreen(SettingsScreen::Suspension);
 				else
 					showSettingsScreen(SettingsScreen::DeviceSettings);
 			}
