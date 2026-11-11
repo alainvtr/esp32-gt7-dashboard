@@ -1,3 +1,4 @@
+// 08/11/2026 20:45 - Stand : tour d'entree = tour du debut du ralentissement (ligne franchie dans la voie des stands) ; la boite ignore les tours d'entree et de sortie ; lacet transmis a la boite (virage le plus lent)
 // 06/11/2026 16:05 - Conseil de repartition de freinage en roulant (BrakeHint), remis a zero au retour en piste ; mode demo : sous-virage au freinage plus marque (80 %) pour le faire apparaitre
 // 06/11/2026 02:05 - Ecran MOTEUR (regimes de couple et de puissance max, ouvert depuis BOITE) ; gaz transmis aux releves de la boite (passages montants mesures)
 // 06/11/2026 01:45 - Ecrans BOITE (appui sur le rapport engage) et SUSPENSION (appui sur TYRE TEMP), a l'arret comme l'ingenieur ; releves boite par tour et suspension par situation, remis a zero au retour en piste ; simules en mode demo
@@ -673,7 +674,9 @@ public:
 		int previousLapCount = 0;
 		bool pitSeen = false;			// pit confirmé pendant le tour en cours
 		PitPhase pitPhase = PIT_IDLE;
-		int pitEntryLap = 0;			// tour pendant lequel la phase 1 a commencé
+		int pitEntryLap = 0;			// tour d'entrée dans la voie des stands
+		int slowStartLap = 0;			// tour où la vitesse est passée sous LAP_PIT_MAX_KMH
+		bool aboveMaxKmh = true;		// vitesse au-dessus de LAP_PIT_MAX_KMH
 		float stableRefKmh = 0.0f;
 		uint32_t stableSince = 0;
 		uint32_t phaseSince = 0;
@@ -694,8 +697,11 @@ public:
 	}
 
 	// Marque le tour d'entrée au pit: tour en cours, ou tour déjà affiché dans l'historique.
+	// La boîte ignore aussi ce tour et le tour en cours (sortie).
 	void markPitLap(int lap, int currentLapCount)
 	{
+		gearbox.markPit(lap);
+		gearbox.markPit(currentLapCount);
 		if (lap >= currentLapCount)
 		{
 			lapTracker.pitSeen = true;
@@ -716,13 +722,25 @@ public:
 		}
 		const bool stable = now - t.stableSince >= LAP_PIT_STABLE_MS &&
 			speedKmh >= LAP_PIT_MIN_KMH && speedKmh <= LAP_PIT_MAX_KMH;
+		// Début du ralentissement : la ligne peut être franchie dans la voie des stands
+		// avant que la vitesse ne soit stable (stand après la ligne).
+		if (speedKmh > LAP_PIT_MAX_KMH)
+			t.aboveMaxKmh = true;
+		else if (t.aboveMaxKmh)
+		{
+			t.aboveMaxKmh = false;
+			t.slowStartLap = lapCount;
+		}
 
 		switch (t.pitPhase)
 		{
 		case PIT_IDLE:		// phase 1: vitesse stabilisée
 			if (stable)
 			{
-				t.pitEntryLap = lapCount;
+				// Tour d'entrée : celui du début du ralentissement (au plus le tour précédent).
+				t.pitEntryLap = t.slowStartLap >= lapCount - 1 && t.slowStartLap <= lapCount
+					? t.slowStartLap
+					: lapCount;
 				t.phaseSince = now;
 				setPitPhase(PIT_APPROACH, speedKmh, rpm);
 			}
@@ -797,7 +815,7 @@ public:
 		// Fin de tour: lapCount augmente (le faux passage 0 -> 1 du départ est ignoré).
 		if (lapCount > lapTracker.previousLapCount)
 		{
-			gearbox.endLap(lapTracker.pitSeen);
+			gearbox.endLap(lapTracker.previousLapCount, lapTracker.pitSeen);
 			if (lapTracker.previousLapCount >= 1 && lastLapMs > 0)
 				pushLapHistory(lapTracker.previousLapCount, lastLapMs, lapTracker.pitSeen);
 			lapTracker.pitSeen = false;
@@ -1039,7 +1057,8 @@ public:
 			throttlePercent, brakePercent}, millis());
 		brakeHint.update(handling, currentSpeedKmh, throttlePercent,
 			data.angularVelocity[HandlingTrace::HANDLING_YAW_AXIS], millis());
-		gearbox.update(currentSpeedKmh, data.EngineRPM, currentGear, throttlePercent, data.gearRatios,
+		gearbox.update(currentSpeedKmh, data.EngineRPM, currentGear, throttlePercent,
+			data.angularVelocity[HandlingTrace::HANDLING_YAW_AXIS], data.gearRatios,
 			data.minAlertRPM, data.calcMaxSpeed, gamePaused, millis());
 		suspension.update(currentSpeedKmh, throttlePercent, brakePercent,
 			data.angularVelocity[HandlingTrace::HANDLING_YAW_AXIS], data.suspHeight,
@@ -1465,15 +1484,15 @@ public:
 			static const float demoRatios[GearboxTrace::MAX_GEARS] = {
 				3.2f, 2.3f, 1.8f, 1.4f, 1.15f, 0.95f, 0.0f, 0.0f};
 			const int demoGear = demoStopped ? 15 : gearIndex;
+			const float demoYaw = demoStopped ? 0.0f : 0.4f * sinf(now / 1273.0f);
 			gearbox.update(currentSpeedKmh, static_cast<float>(engineRpm), demoGear, throttle,
-				demoRatios, rpmAlertMinRpm, 300, false, now);
+				demoYaw, demoRatios, rpmAlertMinRpm, 300, false, now);
 			static uint32_t lastDemoGearLap = 0;
 			if (now / 12000 != lastDemoGearLap)
 			{
+				gearbox.endLap(static_cast<int>(lastDemoGearLap), false);
 				lastDemoGearLap = now / 12000;
-				gearbox.endLap(false);
 			}
-			const float demoYaw = demoStopped ? 0.0f : 0.4f * sinf(now / 1273.0f);
 			const float pitch = braking && !demoStopped ? -0.012f : (throttle > 90 ? 0.006f : 0.0f);
 			const float roll = 0.02f * demoYaw;	// virage a gauche : cote droit enfonce
 			const float demoSusp[4] = {

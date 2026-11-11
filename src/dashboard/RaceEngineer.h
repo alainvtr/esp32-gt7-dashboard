@@ -1,3 +1,4 @@
+// 08/11/2026 20:45 - Regle globale : meme tendance sur toutes les lignes mesurees -> chassis d'abord (antiroulis), puis DGL sur la ligne la plus ecartee ; S sous-virage avec roue interieure qui patine : hors tableau, plus de conseil Accel + (lignes suivantes examinees)
 // 06/11/2026 02:05 - Regimes de couple max et de puissance max memorises par voiture (cle separee "m<carCode>", l'enregistrement v2 ne change pas) pour l'etagement de la boite
 // 06/11/2026 01:45 - Bouton FAIT : conseil marque applique (comparaison certaine "Accel +5 : S 1.20 -> 1.05"), sinon session "sans changement" (ecart = bruit de mesure) ; enregistrement v2 (la transmission des enregistrements v1 est reprise)
 // 30/10/2026 15:28 - Creation : ingenieur de course (bilan de session F/L/M/S, un conseil DGL / repartition de freinage / chassis, comparaison avec la session precedente), memorise par voiture (carCode) en flash
@@ -13,6 +14,10 @@
 // Ingenieur de course : analyse les cumuls de session de HandlingTrace et donne
 // UN conseil, dans l'ordre de la methode de reglage :
 //   S (Accel) -> F / L (repartition de freinage, puis Decel) -> M (Initial).
+// Exception : si toutes les lignes mesurees (au moins ENGINEER_GLOBAL_MIN_LINES)
+// ont la meme tendance, la cause est commune a toutes les phases : chassis d'abord
+// (antiroulis), le DGL ensuite sur la ligne la plus ecartee. Le reglage marque
+// FAIT est alors juge sur l'ecart moyen a 1 de toutes les lignes.
 // Regles : voir claude/lecture-cellule-handling.md (projet).
 //
 // Une "session" va d'un retour en piste (le DGL ne se regle qu'au garage) ou d'un
@@ -37,6 +42,7 @@ public:
 	enum AdviceKind : uint8_t { ADVICE_INFO, ADVICE_SETTING, ADVICE_OK };
 
 	static constexpr int PHASE_COUNT = HandlingTrace::PHASE_COUNT;
+	static constexpr int ALL_LINES = PHASE_COUNT;	// conseil global (toutes les lignes)
 	static char phaseName(int phase) { return "FLMS"[phase]; }
 
 	// Bilan d'une phase sur la session (NAN = pas de donnees).
@@ -239,6 +245,7 @@ public:
 		if (!record_.hasBefore) return VERDICT_NONE;
 		if (!record_.lastApplied) return compareUnchanged(now, text, size);
 		const int line = record_.lastLine;
+		if (line == ALL_LINES) return compareGlobal(now, text, size);
 		if (line < 0 || line >= PHASE_COUNT) return VERDICT_NONE;
 		const char name = phaseName(line);
 		if (record_.beforeTimeS[line] < ENGINEER_MIN_TIME_S)
@@ -255,19 +262,8 @@ public:
 			return VERDICT_WAITING;
 		}
 		const float current = now.phase[line].balance;
-		const float change = fabsf(current - 1.0f) - fabsf(before - 1.0f);
-		Verdict verdict = VERDICT_NO_EFFECT;
-		const char *conclusion = "sans effet net";
-		if (change <= -ENGINEER_MIN_CHANGE)
-		{
-			verdict = VERDICT_BETTER;
-			conclusion = "mieux, garder";
-		}
-		else if (change >= ENGINEER_MIN_CHANGE)
-		{
-			verdict = VERDICT_WORSE;
-			conclusion = "pire, revenir";
-		}
+		const char *conclusion;
+		const Verdict verdict = judge(fabsf(current - 1.0f) - fabsf(before - 1.0f), conclusion);
 		snprintf(text, size, "%s : %c %.2f -> %.2f %s",
 			record_.lastLabel, name, before, current, conclusion);
 		return verdict;
@@ -305,15 +301,32 @@ public:
 			return a;
 		}
 
+		// Meme tendance partout : cause commune, chassis d'abord.
+		if (globalTendency(s, a)) return a;
+
 		// Ordre de la methode : S, puis F / L, puis M (qui decale toutes les lignes).
 		const HandlingTrace::Phase brake = HandlingTrace::PHASE_BRAKE;
 		const HandlingTrace::Phase lift = HandlingTrace::PHASE_LIFT;
 		const HandlingTrace::Phase mid = HandlingTrace::PHASE_MID;
 		const HandlingTrace::Phase exit = HandlingTrace::PHASE_EXIT;
-		if (outOfBalance(s.phase[exit])) return adviceExit(s.phase[exit]);
+		// S en sous-virage avec la roue interieure qui patine : hors du tableau (plus
+		// de blocage reduirait le patinage mais pousserait davantage) ; pas de conseil
+		// DGL, on examine les lignes suivantes.
+		const bool exitUndecided = outOfBalance(s.phase[exit]) &&
+			tendencyOf(s.phase[exit]) == HandlingTrace::TENDENCY_UNDER &&
+			lockOf(s.phase[exit]) == LOCK_SPIN;
+		if (outOfBalance(s.phase[exit]) && !exitUndecided) return adviceExit(s.phase[exit]);
 		if (outOfBalance(s.phase[lift])) return adviceLift(s.phase[lift]);
 		if (outOfBalance(s.phase[brake])) return adviceBrake(s.phase[brake], s.phase[lift]);
 		if (outOfBalance(s.phase[mid])) return adviceMid(s.phase[mid]);
+		if (exitUndecided)
+		{
+			char diagnosis[64];
+			diagnosisOf(exit, s.phase[exit], diagnosis, sizeof(diagnosis));
+			setText(a, ADVICE_INFO, exit, diagnosis, "Doser les gaz en sortie (ou TCS +1)",
+				"Sous-virage + patinage : DGL non conclusif", "");
+			return a;
+		}
 
 		// Moyennes neutres, mais une ligne qui ne derape qu'en virage rapide : aero.
 		for (int p = 0; p < PHASE_COUNT; ++p)
@@ -373,6 +386,50 @@ private:
 		if (phase.lock < ENGINEER_LOCK_LOCKED_MAX) return LOCK_LOCKED;
 		if (phase.lock < ENGINEER_LOCK_FREE_MIN) return LOCK_PARTIAL;
 		return LOCK_FREE;
+	}
+
+	// Ecart a 1 qui diminue : mieux ; qui augmente : pire (au-dela du bruit).
+	static Verdict judge(float change, const char *&conclusion)
+	{
+		if (change <= -ENGINEER_MIN_CHANGE)
+		{
+			conclusion = "mieux, garder";
+			return VERDICT_BETTER;
+		}
+		if (change >= ENGINEER_MIN_CHANGE)
+		{
+			conclusion = "pire, revenir";
+			return VERDICT_WORSE;
+		}
+		conclusion = "sans effet net";
+		return VERDICT_NO_EFFECT;
+	}
+
+	// Conseil global : ecart moyen a 1 des lignes mesurees avant et maintenant.
+	Verdict compareGlobal(const Summary &now, char *text, size_t size) const
+	{
+		float before = 0.0f;
+		float current = 0.0f;
+		int count = 0;
+		for (int p = 0; p < PHASE_COUNT; ++p)
+		{
+			if (!now.phase[p].valid() || record_.beforeTimeS[p] < ENGINEER_MIN_TIME_S) continue;
+			before += fabsf(record_.beforeBalance[p] - 1.0f);
+			current += fabsf(now.phase[p].balance - 1.0f);
+			++count;
+		}
+		if (count == 0)
+		{
+			snprintf(text, size, "%s : en attente de donnees", record_.lastLabel);
+			return VERDICT_WAITING;
+		}
+		before /= count;
+		current /= count;
+		const char *conclusion;
+		const Verdict verdict = judge(current - before, conclusion);
+		snprintf(text, size, "%s : ecart moyen %.2f -> %.2f %s",
+			record_.lastLabel, before, current, conclusion);
+		return verdict;
 	}
 
 	Verdict compareUnchanged(const Summary &now, char *text, size_t size) const
@@ -442,6 +499,44 @@ private:
 	}
 
 	// Sortie (gaz francs) : DGL Accel.
+	// Toutes les lignes mesurees (au moins ENGINEER_GLOBAL_MIN_LINES) dans la meme
+	// tendance : antiroulis, puis DGL sur la ligne la plus ecartee.
+	static bool globalTendency(const Summary &s, Advice &a)
+	{
+		int count = 0;
+		HandlingTrace::Tendency common = HandlingTrace::TENDENCY_NONE;
+		float sum = 0.0f;
+		int extreme = -1;
+		for (int p = 0; p < PHASE_COUNT; ++p)
+		{
+			const HandlingTrace::Tendency tendency = tendencyOf(s.phase[p]);
+			if (tendency == HandlingTrace::TENDENCY_NONE) continue;
+			if (tendency != HandlingTrace::TENDENCY_UNDER && tendency != HandlingTrace::TENDENCY_OVER)
+				return false;
+			if (count > 0 && tendency != common) return false;
+			common = tendency;
+			++count;
+			sum += s.phase[p].balance;
+			// La plus ecartee : la plus faible en sous-virage, la plus forte en survirage.
+			if (extreme < 0 || (tendency == HandlingTrace::TENDENCY_UNDER
+					? s.phase[p].balance < s.phase[extreme].balance
+					: s.phase[p].balance > s.phase[extreme].balance))
+				extreme = p;
+		}
+		if (count < ENGINEER_GLOBAL_MIN_LINES) return false;
+		const bool under = common == HandlingTrace::TENDENCY_UNDER;
+		char diagnosis[64];
+		char note[64];
+		snprintf(diagnosis, sizeof(diagnosis), "%s sur %d lignes (moyenne %.2f)",
+			under ? "Sous-virage" : "Survirage", count, sum / count);
+		snprintf(note, sizeof(note), "Chassis d'abord ; ensuite DGL sur %c (%.2f)",
+			phaseName(extreme), s.phase[extreme].balance);
+		setText(a, ADVICE_SETTING, ALL_LINES, diagnosis,
+			under ? "Antiroulis AV -1 (ou AR +1)" : "Antiroulis AR -1 (ou AV +1)",
+			note, under ? "Barres AV-1/AR+1" : "Barres AR-1/AV+1");
+		return true;
+	}
+
 	static Advice adviceExit(const PhaseSummary &phase)
 	{
 		const int line = HandlingTrace::PHASE_EXIT;

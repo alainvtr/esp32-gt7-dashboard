@@ -1,3 +1,4 @@
+// 08/11/2026 20:45 - BOITE : 4 lignes de verdict (vitesse max, etagement, virage lent, passages), une action chiffree en valeurs de rapport, tableau AVANT / MAINTENANT reduit ; MOTEUR : rapports recus du jeu et retombee a chaque passage (a comparer a la fiche GT7)
 // 06/11/2026 02:05 - BOITE : etagement (chute de regime a chaque passage, virage le plus lent) et bouton MOTEUR ; nouvel ecran MOTEUR de saisie des regimes de couple max et de puissance max (par voiture)
 // 06/11/2026 01:45 - Creation : ecrans BOITE (appui sur le rapport engage) et SUSPENSION (appui sur TYRE TEMP), ouverts a l'arret comme l'ingenieur de course, avec RAZ et RETOUR AU DASHBOARD
 // Ce fichier est inclus DANS la classe SHCustomProtocol, apres RadarTheme.inc
@@ -23,20 +24,26 @@ static constexpr int ANALYSIS_BUTTON_RESET = 0;
 static constexpr int ANALYSIS_BUTTON_BACK = 1;
 static constexpr int ANALYSIS_BUTTON_ENGINE = 2;
 
-// Ecran BOITE : une ligne par grandeur, colonnes AVANT et MAINTENANT, puis la chute
-// de regime a chaque passage et le conseil.
+// Ecran BOITE : un verdict par sujet, l'action a faire, puis un petit tableau
+// AVANT / MAINTENANT.
 static constexpr int GEARBOX_INFO_Y = 44;
-static constexpr int GEARBOX_HEADER_Y = 64;
-static constexpr int GEARBOX_ROW_Y = 82;
-static constexpr int GEARBOX_ROW_STEP = 17;
+static constexpr int GEARBOX_VERDICT_Y = 64;
+static constexpr int GEARBOX_VERDICT_STEP = 17;
+static constexpr int GEARBOX_VERDICT_TEXT_X = 100;
+static constexpr int GEARBOX_ACTION_Y = 136;
+static constexpr int GEARBOX_NOTE_Y = 154;
+static constexpr int GEARBOX_SEPARATOR_Y = 166;
+static constexpr int GEARBOX_HEADER_Y = 176;
+static constexpr int GEARBOX_ROW_Y = 192;
+static constexpr int GEARBOX_ROW_STEP = 16;
 static constexpr int GEARBOX_COL_BEFORE_X = 300;
 static constexpr int GEARBOX_COL_NOW_X = 390;
-static constexpr int GEARBOX_SHIFTS_Y = 188;
-static constexpr int GEARBOX_SHIFT_STEP = 66;
-static constexpr int GEARBOX_SEPARATOR_Y = 200;
-static constexpr int GEARBOX_DIAGNOSIS_Y = 212;
-static constexpr int GEARBOX_ACTION_Y = 230;
-static constexpr int GEARBOX_NOTE_Y = 248;
+// Ecran MOTEUR : rapports recus et retombee a chaque passage, sous les reglages.
+static constexpr int ENGINE_RATIOS_Y = 214;
+static constexpr int ENGINE_SHIFTS_Y = 232;
+static constexpr int ENGINE_VALUES_X = 92;
+static constexpr int ENGINE_RATIO_STEP = 48;
+static constexpr int ENGINE_SHIFT_STEP = 64;
 
 // Ecran MOTEUR : 2 lignes de reglage (couple max, puissance max), 4 boutons chacune.
 static constexpr int ENGINE_ROW_COUNT = 2;
@@ -47,7 +54,6 @@ static constexpr int ENGINE_BUTTON_Y = 66;
 static constexpr int ENGINE_BUTTON_HEIGHT = 50;
 static constexpr int ENGINE_VALUE_X = 166;
 static constexpr int ENGINE_VALUE_WIDTH = 148;
-static constexpr int ENGINE_NOTE_Y = 228;
 static constexpr int ENGINE_BUTTON_OK = ENGINE_ROW_COUNT * ENGINE_STEP_COUNT;
 
 // Boutons -1000 / -100 de part et d'autre de la valeur, +100 / +1000 a droite.
@@ -212,14 +218,16 @@ void drawGearboxRow(int row, const char *label, const String &before, const Stri
 
 void drawGearboxScreen(int pressedButton)
 {
+	static const char *const topicLabels[GearboxTrace::TOPIC_COUNT] = {
+		"Vitesse max", "Etagement", "Virage lent", "Passages"};
 	const uint16_t grey = tft.color565(140, 140, 140);
 	const uint16_t amber = tft.color565(240, 170, 40);
-	const uint16_t red = tft.color565(255, 70, 60);
+	const uint16_t green = tft.color565(110, 200, 90);
 	const GearboxTrace::Summary now = gearbox.summary();
 	GearboxTrace::Summary before;
 	const bool hasBefore = gearbox.before(currentCarCode, before);
 	const GearboxTrace::EngineBand &engine = engineer.engineBand();
-	const GearboxTrace::Advice advice = GearboxTrace::analyze(now, engine);
+	const GearboxTrace::Report report = GearboxTrace::report(now, engine);
 
 	drawAnalysisTitle("BOITE");
 	tft.setTextColor(grey, TFT_BLACK);
@@ -228,24 +236,41 @@ void drawGearboxScreen(int pressedButton)
 		"  couple " + (engine.torqueRpm > 0 ? String(engine.torqueRpm) : String("--")) +
 		"  puiss. " + (engine.powerRpm > 0 ? String(engine.powerRpm) : String("--")),
 		ENG_TITLE_X, GEARBOX_INFO_Y, 2);
+
+	// Un verdict par sujet : vert OK, ambre a corriger, gris inconnu.
+	for (int t = 0; t < GearboxTrace::TOPIC_COUNT; ++t)
+	{
+		const int y = GEARBOX_VERDICT_Y + t * GEARBOX_VERDICT_STEP;
+		const GearboxTrace::Verdict &verdict = report.topic[t];
+		tft.setTextColor(t == report.actionTopic ? amber : TFT_WHITE, TFT_BLACK);
+		tft.drawString(topicLabels[t], ENG_TITLE_X, y, 2);
+		uint16_t color = grey;
+		if (verdict.level == GearboxTrace::LEVEL_OK) color = green;
+		else if (verdict.level == GearboxTrace::LEVEL_WARN) color = amber;
+		tft.setTextColor(color, TFT_BLACK);
+		tft.drawString(verdict.text, GEARBOX_VERDICT_TEXT_X, y, 2);
+	}
+
+	// L'action (un seul reglage a la fois) et sa justification.
+	tft.setTextColor(report.actionTopic >= 0 ? TFT_WHITE : green, TFT_BLACK);
+	tft.drawString(String("> ") + report.action, ENG_TITLE_X, GEARBOX_ACTION_Y, 2);
+	tft.setTextColor(grey, TFT_BLACK);
+	tft.drawString(report.note, ENG_TITLE_X + 12, GEARBOX_NOTE_Y, 2);
+	tft.drawFastHLine(ENG_TITLE_X, GEARBOX_SEPARATOR_Y, SCREEN_WIDTH - 2 * ENG_TITLE_X, grey);
+
 	tft.drawString("AVANT", GEARBOX_COL_BEFORE_X, GEARBOX_HEADER_Y, 2);
 	tft.drawString("MAINTENANT", GEARBOX_COL_NOW_X, GEARBOX_HEADER_Y, 2);
-
 	const GearboxTrace::Summary empty;
 	const GearboxTrace::Summary &b = hasBefore ? before : empty;
 	char label[40];
 	char gear[8];
-	const int top = max(now.topGear, 1);
-	drawGearboxRow(0, "Tours complets mesures",
+	drawGearboxRow(0, "Tours valides",
 		hasBefore ? String(b.laps) : String("--"), String(now.laps));
 	drawGearboxRow(1, "Vitesse max du tour (km/h)",
 		analysisText(b.maxSpeedKmh, "%.0f"), analysisText(now.maxSpeedKmh, "%.0f"));
-	snprintf(label, sizeof(label), "Temps en %s (s/tour)", GearboxTrace::gearName(top, gear, sizeof(gear)));
-	drawGearboxRow(2, label, analysisText(b.topGearS, "%.1f"), analysisText(now.topGearS, "%.1f"));
-	snprintf(label, sizeof(label), "Au passage en %s (s/tour)", gear);
-	drawGearboxRow(3, label, analysisText(b.limiterS, "%.1f"), analysisText(now.limiterS, "%.1f"));
-	snprintf(label, sizeof(label), "Regime max en %s (%% passage)", gear);
-	drawGearboxRow(4, label, analysisText(b.peakRpmRatio * 100.0f, "%.0f"),
+	snprintf(label, sizeof(label), "Regime max en %s (%% passage)",
+		GearboxTrace::gearName(max(now.topGear, 1), gear, sizeof(gear)));
+	drawGearboxRow(2, label, analysisText(b.peakRpmRatio * 100.0f, "%.0f"),
 		analysisText(now.peakRpmRatio * 100.0f, "%.0f"));
 	// Virage le plus lent : "2e 4150" (rapport, regime).
 	const auto cornerText = [](const GearboxTrace::Summary &summary) -> String {
@@ -254,30 +279,7 @@ void drawGearboxScreen(int pressedButton)
 		return String(GearboxTrace::gearName(summary.cornerGear, name, sizeof(name))) + " " +
 			String(static_cast<int>(summary.cornerRpm + 0.5f));
 	};
-	drawGearboxRow(5, "Virage le plus lent (tr/min)", cornerText(b), cornerText(now));
-
-	// Regime apres chaque passage, au regime de passage du jeu : rouge sous le couple
-	// max (s'il est saisi). "2>3 5030".
-	for (int g = 1; g < now.topGear; ++g)
-	{
-		const float after = now.rpmAfterShift(g, static_cast<float>(now.shiftRpm));
-		uint16_t color = grey;
-		if (isfinite(after) && engine.torqueRpm > 0)
-			color = after < engine.torqueRpm ? red : TFT_WHITE;
-		tft.setTextColor(color, TFT_BLACK);
-		tft.drawString(String(g) + ">" + String(g + 1) + " " +
-			(isfinite(after) ? String(static_cast<int>(after + 0.5f)) : String("--")),
-			ENG_TITLE_X + (g - 1) * GEARBOX_SHIFT_STEP, GEARBOX_SHIFTS_Y, 2);
-	}
-	tft.drawFastHLine(ENG_TITLE_X, GEARBOX_SEPARATOR_Y, SCREEN_WIDTH - 2 * ENG_TITLE_X, grey);
-
-	tft.setTextColor(advice.kind == GearboxTrace::ADVICE_OK ? tft.color565(110, 200, 90) : amber,
-		TFT_BLACK);
-	tft.drawString(advice.diagnosis, ENG_TITLE_X, GEARBOX_DIAGNOSIS_Y, 2);
-	tft.setTextColor(TFT_WHITE, TFT_BLACK);
-	tft.drawString(advice.action, ENG_TITLE_X, GEARBOX_ACTION_Y, 2);
-	tft.setTextColor(grey, TFT_BLACK);
-	tft.drawString(advice.note, ENG_TITLE_X, GEARBOX_NOTE_Y, 2);
+	drawGearboxRow(3, "Virage le plus lent (tr/min)", cornerText(b), cornerText(now));
 
 	drawAnalysisButtons("RAZ MESURES", pressedButton);
 }
@@ -321,14 +323,43 @@ void drawEngineScreen(int pressedButton)
 		}
 		drawEngineValue(row);
 	}
-	tft.setTextDatum(ML_DATUM);
-	tft.setTextColor(tft.color565(140, 140, 140), TFT_BLACK);
-	tft.drawString("Regimes de la fiche de la voiture (courbe de puissance)",
-		ENG_TITLE_X, ENGINE_NOTE_Y, 2);
-	tft.drawString("A ressaisir si le moteur est modifie", ENG_TITLE_X, ENGINE_NOTE_Y + 18, 2);
+	drawEngineGearing();
 	drawSettingsButton(ANALYSIS_RESET_X, ENG_BUTTON_Y, SCREEN_WIDTH - 2 * ANALYSIS_RESET_X,
 		ENG_BUTTON_HEIGHT, "OK (RETOUR A LA BOITE)", pressedButton == ENGINE_BUTTON_OK);
 	tft.setTextDatum(TL_DATUM);
+}
+
+// Rapports recus du jeu (a comparer a la fiche de transmission de GT7) et regime
+// apres chaque passage au regime de passage du jeu : rouge sous le couple max.
+void drawEngineGearing()
+{
+	const uint16_t grey = tft.color565(140, 140, 140);
+	const GearboxTrace::Summary now = gearbox.summary();
+	const GearboxTrace::EngineBand &engine = engineer.engineBand();
+	tft.setTextDatum(ML_DATUM);
+	tft.setTextColor(grey, TFT_BLACK);
+	tft.drawString("Rapports", ENG_TITLE_X, ENGINE_RATIOS_Y, 2);
+	tft.drawString("Retombee", ENG_TITLE_X, ENGINE_SHIFTS_Y, 2);
+	if (now.topGear <= 0)
+	{
+		tft.drawString("-- (rouler pour les recevoir)", ENGINE_VALUES_X, ENGINE_RATIOS_Y, 2);
+		return;
+	}
+	tft.setTextColor(TFT_WHITE, TFT_BLACK);
+	for (int g = 1; g <= now.topGear; ++g)
+		tft.drawString(analysisText(now.ratios[g - 1], "%.3f"),
+			ENGINE_VALUES_X + (g - 1) * ENGINE_RATIO_STEP, ENGINE_RATIOS_Y, 2);
+	for (int g = 1; g < now.topGear; ++g)
+	{
+		const float after = now.rpmAfterShift(g, static_cast<float>(now.shiftRpm));
+		uint16_t color = grey;
+		if (isfinite(after) && engine.torqueRpm > 0)
+			color = after < engine.torqueRpm ? tft.color565(255, 70, 60) : TFT_WHITE;
+		tft.setTextColor(color, TFT_BLACK);
+		tft.drawString(String(g) + ">" + String(g + 1) + " " +
+			(isfinite(after) ? String(static_cast<int>(after + 0.5f)) : String("--")),
+			ENGINE_VALUES_X + (g - 1) * ENGINE_SHIFT_STEP, ENGINE_SHIFTS_Y, 2);
+	}
 }
 
 int engineButtonAtTouch() const

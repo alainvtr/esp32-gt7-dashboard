@@ -1,3 +1,4 @@
+// 08/11/2026 20:45 - Ajout des reglages de la boite (lacet du virage lent, bornes des changements de rapport) et de la regle globale de l'ingenieur ; seuils existants inchanges
 // 06/11/2026 16:05 - Ajout des reglages du conseil de repartition de freinage en roulant (ligne F) ; seuils existants inchanges
 // 06/11/2026 02:05 - Ajout des reglages de l'etagement (passages mesures, virage lent, passages trop tot) et de la saisie des regimes moteur ; seuils existants inchanges
 // 06/11/2026 01:45 - Ajout des reglages des ecrans BOITE (vitesse max) et SUSPENSION (releves) ; seuils existants inchanges
@@ -80,6 +81,8 @@ static constexpr float ENGINEER_BAND_MIN_TIME_S = 5.0f;	// donnees minimales par
 static constexpr float ENGINEER_MIN_CHANGE = 0.03f;
 // Pas des conseils DGL (Initial / Accel / Decel).
 static constexpr int ENGINEER_DGL_STEP = 5;
+// Regle globale : nombre minimal de lignes mesurees, toutes de meme tendance.
+static constexpr int ENGINEER_GLOBAL_MIN_LINES = 3;
 
 // ---------------------------------------------------------------------------
 // Ecran BOITE (appui sur le rapport engage, a l'arret) : reglage "vitesse max"
@@ -96,6 +99,9 @@ static constexpr int ENGINEER_GEAR_STEP_PERCENT = 5;	// pas du conseil (trop cou
 static constexpr int ENGINEER_GEAR_SHIFT_MIN_THROTTLE = 50;	// % de gaz : passage montant mesure
 static constexpr float ENGINEER_GEAR_CORNER_MIN_KMH = 25.0f;	// point le plus lent : au-dessus (tete-a-queue exclu)
 static constexpr float ENGINEER_GEAR_EARLY_RATIO = 0.97f;	// passage < ce ratio x puissance max : trop tot
+static constexpr float ENGINEER_GEAR_CORNER_MIN_YAW = 0.15f;	// rad/s : virage net (voie des stands exclue)
+static constexpr float ENGINEER_GEAR_MIN_FACTOR = 1.01f;	// en deca : pas de marge pour changer un rapport
+static constexpr float ENGINEER_GEAR_MAX_FACTOR = 1.20f;	// changement maximal d'un rapport non borne par un voisin
 // Saisie des regimes (ecran MOTEUR).
 static constexpr int ENGINE_RPM_SMALL_STEP = 100;
 static constexpr int ENGINE_RPM_LARGE_STEP = 1000;

@@ -1,15 +1,18 @@
+// 08/11/2026 20:45 - Tour valide a la fin du tour suivant (tours d'entree et de sortie de stand exclus) ; virage le plus lent : lacet net exige (voie des stands exclue), rapport le plus frequent ; analyse en 4 verdicts (vitesse max, etagement, virage lent, passages) et une action chiffree en valeurs de rapport
 // 06/11/2026 02:05 - Etagement : chute de regime a chaque passage (rapports du jeu), regime de passage mesure, point le plus lent du tour ; conseils d'apres les regimes de couple et de puissance max saisis pour la voiture
 // 06/11/2026 01:45 - Creation : releves de la boite par tour (vitesse max, regime max et temps au regime de passage sur le dernier rapport) et conseil sur le reglage "vitesse max" de la transmission
 #pragma once
 
 #include <Arduino.h>
 #include <math.h>
+#include <stdarg.h>
 #include "tuning.h"
 
 // Boite de vitesses : le dernier rapport est-il adapte au circuit ?
 //
 // Par tour complet (le 1er tour de la session, partiel, et les tours avec pit sont
-// ignores), sur le dernier rapport :
+// ignores ; un tour n'est valide qu'a la fin du tour suivant, quand on sait s'il
+// contenait l'entree de la voie des stands), sur le dernier rapport :
 //  - temps passe au regime de passage de rapport du jeu (minAlertRPM) ou au-dela :
 //    la voiture voudrait un rapport de plus -> boite trop courte ;
 //  - regime maximal atteint, en fraction de ce regime : loin en dessous, la vitesse
@@ -28,10 +31,14 @@
 //    deux rapports ;
 //  - regime reel des passages montants (gaz >= ENGINEER_GEAR_SHIFT_MIN_THROTTLE) :
 //    avant la puissance max = passages trop tot (pilotage, pas reglage) ;
-//  - point le plus lent de chaque tour (virage le plus lent) : sous le couple max,
-//    le rapport utilise est trop long pour ce virage.
-// Ordre des conseils : vitesse max (decale tous les rapports), etagement, virage
-// lent, passages trop tot.
+//  - point le plus lent de chaque tour (virage le plus lent, lacet net exige pour
+//    ne pas prendre la voie des stands) : sous le couple max, le rapport utilise
+//    est trop long pour ce virage.
+// Un verdict par sujet (vitesse max, etagement, virage lent, passages) et une
+// seule action, sur le premier sujet a corriger dans cet ordre : vitesse max
+// (decale tous les rapports), etagement, virage lent, passages trop tot. Les
+// actions sur un rapport donnent la valeur a saisir (rapport plus grand = plus
+// court), limitee pour ne pas faire retomber un passage voisin sous le couple max.
 //
 // Une session va d'un retour en piste (la boite ne se regle qu'au garage) ou d'un
 // appui sur RAZ au suivant ; son bilan devient le bilan "avant" (meme voiture).
@@ -41,8 +48,8 @@ public:
 	static constexpr int MAX_GEARS = 8;
 	static constexpr uint32_t MAX_STEP_MS = 100;	// trou de telemetrie ignore
 
-	enum AdviceKind : uint8_t { ADVICE_INFO, ADVICE_SHORT, ADVICE_LONG, ADVICE_OK,
-		ADVICE_SPACING, ADVICE_CORNER, ADVICE_DRIVER };
+	enum Level : uint8_t { LEVEL_UNKNOWN, LEVEL_OK, LEVEL_WARN };
+	enum Topic : uint8_t { TOPIC_TOP_SPEED, TOPIC_SPACING, TOPIC_CORNER, TOPIC_SHIFTS, TOPIC_COUNT };
 
 	// Regimes de la plage utile du moteur, saisis par voiture (0 = inconnu).
 	struct EngineBand
@@ -66,7 +73,7 @@ public:
 		// Passages montants g -> g+1, indice g-1 : nombre et regime moyen au passage.
 		int shiftCount[MAX_GEARS] = {};
 		float shiftUpRpm[MAX_GEARS] = {};
-		// Point le plus lent des tours : regime moyen, vitesse moyenne, rapport (dernier tour).
+		// Point le plus lent des tours, sur le rapport le plus frequent : regime et vitesse moyens.
 		float cornerRpm = NAN;
 		float cornerSpeedKmh = NAN;
 		int cornerGear = 0;
@@ -88,16 +95,22 @@ public:
 		}
 	};
 
-	struct Advice
+	struct Verdict
 	{
-		AdviceKind kind = ADVICE_INFO;
-		char diagnosis[64] = "";
+		Level level = LEVEL_UNKNOWN;
+		char text[56] = "";
+	};
+
+	struct Report
+	{
+		Verdict topic[TOPIC_COUNT];
+		int actionTopic = -1;	// sujet de l'action, -1 = rien a changer
 		char action[64] = "";
 		char note[64] = "";
 	};
 
-	void update(float speedKmh, float rpm, int gear, int throttlePercent, const float *gearRatios,
-		int shiftRpm, int calcMaxSpeed, bool paused, uint32_t now)
+	void update(float speedKmh, float rpm, int gear, int throttlePercent, float yaw,
+		const float *gearRatios, int shiftRpm, int calcMaxSpeed, bool paused, uint32_t now)
 	{
 		const uint32_t stepMs = lastSample_ == 0 ? 0 : now - lastSample_;
 		lastSample_ = now;
@@ -129,8 +142,10 @@ public:
 
 		const float dtS = stepMs / 1000.0f;
 		lap_.maxSpeedKmh = max(lap_.maxSpeedKmh, speedKmh);
-		// Point le plus lent du tour (virage le plus lent), voiture en mouvement.
-		if (speedKmh >= ENGINEER_GEAR_CORNER_MIN_KMH && gear >= 1 && gear <= MAX_GEARS &&
+		// Point le plus lent du tour (virage le plus lent), voiture en mouvement et en
+		// virage net : la voie des stands, en ligne droite, ne compte pas.
+		if (speedKmh >= ENGINEER_GEAR_CORNER_MIN_KMH && fabsf(yaw) >= ENGINEER_GEAR_CORNER_MIN_YAW &&
+			gear >= 1 && gear <= MAX_GEARS &&
 			(lap_.cornerGear == 0 || speedKmh < lap_.cornerSpeedKmh))
 		{
 			lap_.cornerSpeedKmh = speedKmh;
@@ -146,33 +161,41 @@ public:
 		}
 	}
 
-	// Fin de tour : retenu s'il a commence dans la session et sans pit.
-	void endLap(bool pit)
+	// Fin du tour lapNumber : il attend la fin du tour suivant (un stand peut lui
+	// etre attribue entre-temps) ; le tour precedent en attente est retenu s'il a
+	// commence dans la session et sans stand.
+	void endLap(int lapNumber, bool pit)
 	{
-		if (lapValid_ && !pit && lap_.maxSpeedKmh > 0.0f)
-		{
-			++total_.laps;
-			total_.maxSpeedKmh += lap_.maxSpeedKmh;
-			total_.topGearS += lap_.topGearS;
-			total_.limiterS += lap_.limiterS;
-			total_.peakRpm += lap_.peakRpm;
-			if (lap_.cornerGear > 0)
-			{
-				++total_.corners;
-				total_.cornerRpm += lap_.cornerRpm;
-				total_.cornerSpeedKmh += lap_.cornerSpeedKmh;
-				total_.cornerGear = lap_.cornerGear;
-			}
-		}
+		if (pendingValid_ && !pendingPit_)
+			commit(pending_);
+		pending_ = lap_;
+		pendingLap_ = lapNumber;
+		pendingPit_ = pit || lapPit_;
+		pendingValid_ = lapValid_ && lap_.maxSpeedKmh > 0.0f;
 		lap_ = LapStats();
+		lapPit_ = false;
 		lapValid_ = true;
+		currentLap_ = lapNumber + 1;
 	}
 
-	// Tour en cours non comptable (nouvelle course : le compteur de tours recule).
+	// Stand confirme : le tour d'entree (en attente ou en cours) et le tour en cours
+	// ne seront pas retenus.
+	void markPit(int lapNumber)
+	{
+		if (pendingValid_ && lapNumber == pendingLap_)
+			pendingPit_ = true;
+		if (lapNumber >= currentLap_)
+			lapPit_ = true;
+	}
+
+	// Tour en cours et tour en attente non comptables (nouvelle course : le compteur
+	// de tours recule ; nouvelle session).
 	void discardLap()
 	{
 		lap_ = LapStats();
 		lapValid_ = false;
+		lapPit_ = false;
+		pendingValid_ = false;
 	}
 
 	// Nouvelle session : le bilan de la session ecoulee devient "avant".
@@ -218,11 +241,17 @@ public:
 			s.shiftCount[i] = shiftCount_[i];
 			s.shiftUpRpm[i] = shiftCount_[i] > 0 ? shiftRpmSum_[i] / shiftCount_[i] : NAN;
 		}
-		if (total_.corners > 0)
+		// Virage le plus lent : rapport le plus frequent (le plus bas en cas d'egalite).
+		int cornerGear = 0;
+		for (int g = 1; g <= MAX_GEARS; ++g)
+			if (total_.cornerCount[g - 1] > (cornerGear > 0 ? total_.cornerCount[cornerGear - 1] : 0))
+				cornerGear = g;
+		if (cornerGear > 0)
 		{
-			s.cornerRpm = total_.cornerRpm / total_.corners;
-			s.cornerSpeedKmh = total_.cornerSpeedKmh / total_.corners;
-			s.cornerGear = total_.cornerGear;
+			const int count = total_.cornerCount[cornerGear - 1];
+			s.cornerGear = cornerGear;
+			s.cornerRpm = total_.cornerRpm[cornerGear - 1] / count;
+			s.cornerSpeedKmh = total_.cornerSpeedKmh[cornerGear - 1] / count;
 		}
 		return s;
 	}
@@ -242,145 +271,19 @@ public:
 		return text;
 	}
 
-	// Passage g -> g+1 qui retombe le plus sous le couple max, au regime de passage
-	// du jeu (0 = aucun). Seuls les rapports utilises comptent, si des passages ont
-	// ete mesures.
-	static int worstSpacing(const Summary &s, const EngineBand &engine, float &rpmAfter)
+	static Report report(const Summary &s, const EngineBand &engine)
 	{
-		bool anyMeasured = false;
-		for (int g = 1; g < s.topGear; ++g)
-			if (s.shiftCount[g - 1] > 0) anyMeasured = true;
-		int worst = 0;
-		float worstDeficit = 0.0f;
-		for (int g = 1; g < s.topGear; ++g)
+		Report r;
+		reportTopSpeed(s, r);
+		reportSpacing(s, engine, r);
+		reportCorner(s, engine, r);
+		reportShifts(s, engine, r);
+		if (r.actionTopic < 0)
 		{
-			if (anyMeasured && s.shiftCount[g - 1] == 0) continue;
-			const float after = s.rpmAfterShift(g, static_cast<float>(s.shiftRpm));
-			if (!isfinite(after)) continue;
-			const float deficit = engine.torqueRpm - after;
-			if (deficit > worstDeficit)
-			{
-				worstDeficit = deficit;
-				worst = g;
-				rpmAfter = after;
-			}
+			snprintf(r.action, sizeof(r.action), s.valid() ? "Rien a changer" : "Rouler encore");
+			snprintf(r.note, sizeof(r.note), s.valid() ? "" : "Tours complets sans stand ; le 1er ne compte pas");
 		}
-		return worst;
-	}
-
-	static Advice analyze(const Summary &s, const EngineBand &engine)
-	{
-		Advice a;
-		if (!s.valid())
-		{
-			snprintf(a.diagnosis, sizeof(a.diagnosis), "Pas assez de tours : %d / %d",
-				s.laps, ENGINEER_GEAR_MIN_LAPS);
-			snprintf(a.action, sizeof(a.action), "Rouler encore (tours complets, sans pit)");
-			snprintf(a.note, sizeof(a.note), "Le 1er tour de la session ne compte pas");
-			return a;
-		}
-		if (s.topGear <= 0 || s.shiftRpm <= 0)
-		{
-			snprintf(a.diagnosis, sizeof(a.diagnosis), "Rapports ou regime de passage inconnus");
-			return a;
-		}
-		snprintf(a.note, sizeof(a.note), "Transmission > vitesse max (boite personnalisable)");
-		if (s.limiterS >= ENGINEER_GEAR_SHORT_S)
-		{
-			a.kind = ADVICE_SHORT;
-			snprintf(a.diagnosis, sizeof(a.diagnosis), "Trop courte : %.1f s/tour au passage en %de",
-				s.limiterS, s.topGear);
-			actionPercent(a, s, ENGINEER_GEAR_STEP_PERCENT);
-			return a;
-		}
-		if (s.topGearS < ENGINEER_GEAR_UNUSED_S)
-		{
-			a.kind = ADVICE_LONG;
-			snprintf(a.diagnosis, sizeof(a.diagnosis), "Trop longue : %de presque jamais utilisee",
-				s.topGear);
-			actionPercent(a, s, -ENGINEER_GEAR_STEP_PERCENT);
-			return a;
-		}
-		if (s.peakRpmRatio < ENGINEER_GEAR_LONG_RATIO)
-		{
-			a.kind = ADVICE_LONG;
-			snprintf(a.diagnosis, sizeof(a.diagnosis), "Trop longue : %de a %d %% du passage au max",
-				s.topGear, static_cast<int>(s.peakRpmRatio * 100.0f + 0.5f));
-			// A vitesse egale, le regime suit le rapport : raccourcir de (1 - ratio)
-			// amene le regime de passage a la vitesse max atteinte.
-			actionPercent(a, s, -static_cast<int>((1.0f - s.peakRpmRatio) * 100.0f + 0.5f));
-			return a;
-		}
-		if (!engine.known())
-		{
-			a.kind = ADVICE_OK;
-			snprintf(a.diagnosis, sizeof(a.diagnosis), "Vitesse max adaptee au circuit");
-			snprintf(a.action, sizeof(a.action), "Etagement : saisir les regimes (MOTEUR)");
-			snprintf(a.note, sizeof(a.note), "Couple max et puissance max, fiche de la voiture");
-			return a;
-		}
-		char gearA[8];
-		char gearB[8];
-
-		// Etagement : ecart trop grand entre deux rapports.
-		float after = NAN;
-		const int spacing = worstSpacing(s, engine, after);
-		if (spacing > 0)
-		{
-			a.kind = ADVICE_SPACING;
-			snprintf(a.diagnosis, sizeof(a.diagnosis), "%s > %s : retombe a %d, sous le couple max",
-				gearName(spacing, gearA, sizeof(gearA)), gearName(spacing + 1, gearB, sizeof(gearB)),
-				static_cast<int>(after + 0.5f));
-			snprintf(a.action, sizeof(a.action), "Rapprocher : %s plus courte (ou %s plus longue)",
-				gearB, gearA);
-			snprintf(a.note, sizeof(a.note), "Passage a %d, couple max %d tr/min",
-				s.shiftRpm, engine.torqueRpm);
-			return a;
-		}
-
-		// Virage le plus lent : sous le couple max, le rapport est trop long.
-		if (s.cornerGear > 0 && s.cornerRpm < engine.torqueRpm)
-		{
-			const int g = s.cornerGear;
-			a.kind = ADVICE_CORNER;
-			snprintf(a.diagnosis, sizeof(a.diagnosis), "Virage lent (%d km/h) en %s a %d tr/min",
-				static_cast<int>(s.cornerSpeedKmh + 0.5f), gearName(g, gearA, sizeof(gearA)),
-				static_cast<int>(s.cornerRpm + 0.5f));
-			// Un rapport plus bas, si le regime y reste sous le passage.
-			const float lower = g >= 2 && s.ratios[g - 2] > 0.0f && s.ratios[g - 1] > 0.0f
-				? s.cornerRpm * s.ratios[g - 2] / s.ratios[g - 1]
-				: NAN;
-			if (isfinite(lower) && lower <= s.shiftRpm)
-				snprintf(a.action, sizeof(a.action), "Retrograder en %s (%d tr/min) ou %s plus courte",
-					gearName(g - 1, gearB, sizeof(gearB)), static_cast<int>(lower + 0.5f), gearA);
-			else
-				snprintf(a.action, sizeof(a.action), "%s plus courte", gearA);
-			snprintf(a.note, sizeof(a.note), "Sous le couple max (%d tr/min)", engine.torqueRpm);
-			return a;
-		}
-
-		// Passages mesures avant la puissance max : pilotage.
-		for (int g = 1; g < s.topGear; ++g)
-		{
-			if (s.shiftCount[g - 1] == 0 ||
-				s.shiftUpRpm[g - 1] >= engine.powerRpm * ENGINEER_GEAR_EARLY_RATIO)
-				continue;
-			a.kind = ADVICE_DRIVER;
-			snprintf(a.diagnosis, sizeof(a.diagnosis), "Passages %s > %s a %d tr/min",
-				gearName(g, gearA, sizeof(gearA)), gearName(g + 1, gearB, sizeof(gearB)),
-				static_cast<int>(s.shiftUpRpm[g - 1] + 0.5f));
-			snprintf(a.action, sizeof(a.action), "Passer plus tard : apres %d tr/min", engine.powerRpm);
-			snprintf(a.note, sizeof(a.note), "Puissance max a %d tr/min (pilotage, pas reglage)",
-				engine.powerRpm);
-			return a;
-		}
-
-		a.kind = ADVICE_OK;
-		snprintf(a.diagnosis, sizeof(a.diagnosis), "Boite adaptee au circuit");
-		snprintf(a.action, sizeof(a.action), "Rien a changer");
-		snprintf(a.note, sizeof(a.note), "Plage utile %d - %d tr/min respectee",
-			engine.torqueRpm, engine.powerRpm);
-		return a;
+		return r;
 	}
 
 private:
@@ -402,26 +305,299 @@ private:
 		float topGearS = 0.0f;
 		float limiterS = 0.0f;
 		float peakRpm = 0.0f;
-		int corners = 0;
-		float cornerRpm = 0.0f;
-		float cornerSpeedKmh = 0.0f;
-		int cornerGear = 0;
+		// Virage le plus lent, par rapport utilise (indice rapport - 1).
+		int cornerCount[MAX_GEARS] = {};
+		float cornerRpm[MAX_GEARS] = {};
+		float cornerSpeedKmh[MAX_GEARS] = {};
 	};
 
-	// "Vitesse max +5 % (env. 315)" : valeur estimee a partir de calcMaxSpeed.
-	static void actionPercent(Advice &a, const Summary &s, int percent)
+	// Premier sujet a corriger : il porte l'action (un seul reglage a la fois).
+	static bool takeAction(Report &r, Topic topic)
 	{
-		if (s.calcMaxSpeed > 0)
-			snprintf(a.action, sizeof(a.action), "Vitesse max %+d %% (env. %d au lieu de %d)",
-				percent, static_cast<int>(s.calcMaxSpeed * (100 + percent) / 100.0f + 0.5f),
-				s.calcMaxSpeed);
+		if (r.actionTopic >= 0) return false;
+		r.actionTopic = topic;
+		return true;
+	}
+
+	static void setVerdict(Report &r, Topic topic, Level level, const char *format, ...)
+	{
+		r.topic[topic].level = level;
+		va_list args;
+		va_start(args, format);
+		vsnprintf(r.topic[topic].text, sizeof(r.topic[topic].text), format, args);
+		va_end(args);
+	}
+
+	// "Limite : 1re>2e reste au-dessus du couple" (passage lower -> lower+1).
+	static void limitNote(Report &r, int lower)
+	{
+		char a[8];
+		char b[8];
+		snprintf(r.note, sizeof(r.note), "Limite : %s>%s reste au-dessus du couple",
+			gearName(lower, a, sizeof(a)), gearName(lower + 1, b, sizeof(b)));
+	}
+
+	// "1re : 3.000 -> 3.240 (+8 %)" : rapport plus grand = plus court.
+	static void ratioAction(Report &r, const Summary &s, int gear, float factor)
+	{
+		char name[8];
+		const float ratio = s.ratios[gear - 1];
+		snprintf(r.action, sizeof(r.action), "%s : %.3f -> %.3f (%+d %%)",
+			gearName(gear, name, sizeof(name)), ratio, ratio * factor,
+			static_cast<int>(lroundf((factor - 1.0f) * 100.0f)));
+	}
+
+	// Facteur maximal pour raccourcir le rapport gear (ratio x facteur) sans faire
+	// retomber le passage gear -> gear+1 sous le couple max (ni, pour le dernier
+	// rapport, atteindre le passage en bout de ligne droite).
+	static float shortenLimit(const Summary &s, const EngineBand &engine, int gear)
+	{
+		if (gear < s.topGear)
+		{
+			const float after = s.rpmAfterShift(gear, static_cast<float>(s.shiftRpm));
+			return isfinite(after) ? after / engine.torqueRpm : 1.0f;
+		}
+		return isfinite(s.peakRpmRatio) && s.peakRpmRatio > 0.0f ? 1.0f / s.peakRpmRatio : 1.0f;
+	}
+
+	// Facteur maximal pour allonger le rapport gear (ratio / facteur) sans faire
+	// retomber le passage gear-1 -> gear sous le couple max.
+	static float lengthenLimit(const Summary &s, const EngineBand &engine, int gear)
+	{
+		if (gear <= 1) return ENGINEER_GEAR_MAX_FACTOR;
+		const float after = s.rpmAfterShift(gear - 1, static_cast<float>(s.shiftRpm));
+		return isfinite(after) ? after / engine.torqueRpm : 1.0f;
+	}
+
+	static void reportTopSpeed(const Summary &s, Report &r)
+	{
+		char top[8];
+		gearName(max(s.topGear, 1), top, sizeof(top));
+		if (!s.valid())
+		{
+			setVerdict(r, TOPIC_TOP_SPEED, LEVEL_UNKNOWN, "Attente : %d / %d tours valides",
+				s.laps, ENGINEER_GEAR_MIN_LAPS);
+			return;
+		}
+		if (s.topGear <= 0 || s.shiftRpm <= 0)
+		{
+			setVerdict(r, TOPIC_TOP_SPEED, LEVEL_UNKNOWN, "Rapports ou passage inconnus");
+			return;
+		}
+		int percent = 0;
+		if (s.limiterS >= ENGINEER_GEAR_SHORT_S)
+		{
+			setVerdict(r, TOPIC_TOP_SPEED, LEVEL_WARN, "Trop courte : %.1f s/tour au passage en %s",
+				s.limiterS, top);
+			percent = ENGINEER_GEAR_STEP_PERCENT;
+		}
+		else if (s.topGearS < ENGINEER_GEAR_UNUSED_S)
+		{
+			setVerdict(r, TOPIC_TOP_SPEED, LEVEL_WARN, "Trop longue : %s presque inutilisee", top);
+			percent = -ENGINEER_GEAR_STEP_PERCENT;
+		}
+		else if (s.peakRpmRatio < ENGINEER_GEAR_LONG_RATIO)
+		{
+			setVerdict(r, TOPIC_TOP_SPEED, LEVEL_WARN, "Trop longue : %s a %d %% du passage au max",
+				top, static_cast<int>(lroundf(s.peakRpmRatio * 100.0f)));
+			// A vitesse egale, le regime suit le rapport : raccourcir de (1 - ratio)
+			// amene le regime de passage a la vitesse max atteinte.
+			percent = -static_cast<int>(lroundf((1.0f - s.peakRpmRatio) * 100.0f));
+		}
 		else
-			snprintf(a.action, sizeof(a.action), "Vitesse max %+d %%", percent);
+		{
+			setVerdict(r, TOPIC_TOP_SPEED, LEVEL_OK, "OK : %s a %d %% du passage, %.1f s au passage",
+				top, static_cast<int>(lroundf(s.peakRpmRatio * 100.0f)), s.limiterS);
+			return;
+		}
+		if (!takeAction(r, TOPIC_TOP_SPEED)) return;
+		if (s.calcMaxSpeed > 0)
+			snprintf(r.action, sizeof(r.action), "Vitesse max : %d -> %d (%+d %%)", s.calcMaxSpeed,
+				static_cast<int>(lroundf(s.calcMaxSpeed * (100 + percent) / 100.0f)), percent);
+		else
+			snprintf(r.action, sizeof(r.action), "Vitesse max %+d %%", percent);
+		snprintf(r.note, sizeof(r.note), "Transmission > vitesse max (decale tous les rapports)");
+	}
+
+	static void reportSpacing(const Summary &s, const EngineBand &engine, Report &r)
+	{
+		if (!engine.known())
+		{
+			setVerdict(r, TOPIC_SPACING, LEVEL_UNKNOWN, "A saisir : couple et puissance (MOTEUR)");
+			return;
+		}
+		// Passage g -> g+1 qui retombe le plus bas, au regime de passage du jeu ; seuls
+		// les rapports utilises comptent, si des passages ont ete mesures.
+		bool anyMeasured = false;
+		for (int g = 1; g < s.topGear; ++g)
+			if (s.shiftCount[g - 1] > 0) anyMeasured = true;
+		int worst = 0;
+		float worstAfter = NAN;
+		for (int g = 1; g < s.topGear; ++g)
+		{
+			if (anyMeasured && s.shiftCount[g - 1] == 0) continue;
+			const float after = s.rpmAfterShift(g, static_cast<float>(s.shiftRpm));
+			if (isfinite(after) && (worst == 0 || after < worstAfter))
+			{
+				worst = g;
+				worstAfter = after;
+			}
+		}
+		if (worst == 0 || s.shiftRpm <= 0)
+		{
+			setVerdict(r, TOPIC_SPACING, LEVEL_UNKNOWN, "Rapports ou passage inconnus");
+			return;
+		}
+		char lower[8];
+		char upper[8];
+		gearName(worst, lower, sizeof(lower));
+		gearName(worst + 1, upper, sizeof(upper));
+		if (worstAfter >= engine.torqueRpm)
+		{
+			setVerdict(r, TOPIC_SPACING, LEVEL_OK, "OK : retombee mini %d (%s>%s) > couple %d",
+				static_cast<int>(lroundf(worstAfter)), lower, upper, engine.torqueRpm);
+			return;
+		}
+		setVerdict(r, TOPIC_SPACING, LEVEL_WARN, "%s>%s retombe a %d < couple %d", lower, upper,
+			static_cast<int>(lroundf(worstAfter)), engine.torqueRpm);
+		if (!s.valid() || !takeAction(r, TOPIC_SPACING)) return;
+		// Rapprocher : rapport du dessus plus court, sinon rapport du dessous plus long.
+		const float needed = engine.torqueRpm / worstAfter;
+		const float shorten = min(needed, shortenLimit(s, engine, worst + 1));
+		const float lengthen = min(needed, lengthenLimit(s, engine, worst));
+		if (shorten >= ENGINEER_GEAR_MIN_FACTOR && shorten >= lengthen)
+		{
+			ratioAction(r, s, worst + 1, shorten);
+			if (shorten < needed && worst + 1 < s.topGear)
+				limitNote(r, worst + 1);
+			else if (shorten < needed)
+				snprintf(r.note, sizeof(r.note), "Limite : dernier rapport sans atteindre le passage");
+			else
+				snprintf(r.note, sizeof(r.note), "Rapport plus grand = plus court");
+		}
+		else if (lengthen >= ENGINEER_GEAR_MIN_FACTOR)
+		{
+			ratioAction(r, s, worst, 1.0f / lengthen);
+			if (lengthen < needed && worst > 1)
+				limitNote(r, worst - 1);
+			else
+				snprintf(r.note, sizeof(r.note), "Rapport plus petit = plus long");
+		}
+		else
+		{
+			snprintf(r.action, sizeof(r.action), "Pas de marge : plage du moteur trop etroite");
+			snprintf(r.note, sizeof(r.note), "Passer plus pres du rupteur limite la retombee");
+		}
+	}
+
+	static void reportCorner(const Summary &s, const EngineBand &engine, Report &r)
+	{
+		if (!engine.known())
+		{
+			setVerdict(r, TOPIC_CORNER, LEVEL_UNKNOWN, "A saisir : couple et puissance (MOTEUR)");
+			return;
+		}
+		if (s.cornerGear <= 0)
+		{
+			setVerdict(r, TOPIC_CORNER, LEVEL_UNKNOWN, "Pas encore de virage mesure");
+			return;
+		}
+		const int g = s.cornerGear;
+		char name[8];
+		gearName(g, name, sizeof(name));
+		if (s.cornerRpm >= engine.torqueRpm)
+		{
+			setVerdict(r, TOPIC_CORNER, LEVEL_OK, "OK : %s a %d tr/min (%d km/h)", name,
+				static_cast<int>(lroundf(s.cornerRpm)), static_cast<int>(lroundf(s.cornerSpeedKmh)));
+			return;
+		}
+		setVerdict(r, TOPIC_CORNER, LEVEL_WARN, "%s a %d < couple %d (%d km/h)", name,
+			static_cast<int>(lroundf(s.cornerRpm)), engine.torqueRpm,
+			static_cast<int>(lroundf(s.cornerSpeedKmh)));
+		if (!s.valid() || !takeAction(r, TOPIC_CORNER)) return;
+		// Un rapport plus bas, si le regime y reste sous le passage : pilotage.
+		const float lowerRpm = g >= 2 && s.ratios[g - 2] > 0.0f && s.ratios[g - 1] > 0.0f
+			? s.cornerRpm * s.ratios[g - 2] / s.ratios[g - 1]
+			: NAN;
+		if (isfinite(lowerRpm) && lowerRpm <= s.shiftRpm)
+		{
+			char lower[8];
+			snprintf(r.action, sizeof(r.action), "Retrograder en %s (%d tr/min)",
+				gearName(g - 1, lower, sizeof(lower)), static_cast<int>(lroundf(lowerRpm)));
+			snprintf(r.note, sizeof(r.note), "Pilotage : pas de reglage a faire");
+			return;
+		}
+		// Sinon raccourcir ce rapport, sans faire retomber le passage suivant sous le couple.
+		const float needed = engine.torqueRpm / s.cornerRpm;
+		const float factor = min(needed, shortenLimit(s, engine, g));
+		if (factor < ENGINEER_GEAR_MIN_FACTOR)
+		{
+			snprintf(r.action, sizeof(r.action), "Pas de marge sur la %s", name);
+			snprintf(r.note, sizeof(r.note), "Plus courte, le passage suivant tomberait sous le couple");
+			return;
+		}
+		ratioAction(r, s, g, factor);
+		if (factor < needed && g < s.topGear)
+			limitNote(r, g);
+		else if (factor < needed)
+			snprintf(r.note, sizeof(r.note), "Limite : dernier rapport sans atteindre le passage");
+		else
+			snprintf(r.note, sizeof(r.note), "Rapport plus grand = plus court");
+	}
+
+	static void reportShifts(const Summary &s, const EngineBand &engine, Report &r)
+	{
+		if (!engine.known())
+		{
+			setVerdict(r, TOPIC_SHIFTS, LEVEL_UNKNOWN, "A saisir : couple et puissance (MOTEUR)");
+			return;
+		}
+		bool anyMeasured = false;
+		for (int g = 1; g < s.topGear; ++g)
+		{
+			if (s.shiftCount[g - 1] == 0) continue;
+			anyMeasured = true;
+			if (s.shiftUpRpm[g - 1] >= engine.powerRpm * ENGINEER_GEAR_EARLY_RATIO) continue;
+			char lower[8];
+			char upper[8];
+			setVerdict(r, TOPIC_SHIFTS, LEVEL_WARN, "%s>%s a %d < puissance %d",
+				gearName(g, lower, sizeof(lower)), gearName(g + 1, upper, sizeof(upper)),
+				static_cast<int>(lroundf(s.shiftUpRpm[g - 1])), engine.powerRpm);
+			if (!takeAction(r, TOPIC_SHIFTS)) return;
+			snprintf(r.action, sizeof(r.action), "Passer plus tard : apres %d tr/min", engine.powerRpm);
+			snprintf(r.note, sizeof(r.note), "Pilotage : pas de reglage a faire");
+			return;
+		}
+		if (anyMeasured)
+			setVerdict(r, TOPIC_SHIFTS, LEVEL_OK, "OK : passages apres la puissance max");
+		else
+			setVerdict(r, TOPIC_SHIFTS, LEVEL_UNKNOWN, "Aucun passage mesure (gaz ouverts)");
+	}
+
+	void commit(const LapStats &lap)
+	{
+		++total_.laps;
+		total_.maxSpeedKmh += lap.maxSpeedKmh;
+		total_.topGearS += lap.topGearS;
+		total_.limiterS += lap.limiterS;
+		total_.peakRpm += lap.peakRpm;
+		if (lap.cornerGear > 0)
+		{
+			total_.cornerCount[lap.cornerGear - 1]++;
+			total_.cornerRpm[lap.cornerGear - 1] += lap.cornerRpm;
+			total_.cornerSpeedKmh[lap.cornerGear - 1] += lap.cornerSpeedKmh;
+		}
 	}
 
 	LapStats lap_;
 	Totals total_;
 	bool lapValid_ = false;	// le tour en cours a commence dans la session
+	bool lapPit_ = false;	// stand attribue au tour en cours
+	int currentLap_ = 0;
+	LapStats pending_;	// tour termine, en attente de la fin du tour suivant
+	int pendingLap_ = 0;
+	bool pendingPit_ = false;
+	bool pendingValid_ = false;
 	int topGear_ = 0;
 	int shiftRpm_ = 0;
 	int calcMaxSpeed_ = 0;
